@@ -132,3 +132,15 @@ def test_verify_basis_compare_lists_the_restatement():
     assert d["sec_value"].iloc[0] - d["compare_value"].iloc[0] == 459 * M and "2012-08-09" in d["note"].iloc[0]
     summary = rows[rows["metric"] == "summary"].iloc[0]
     assert summary["status"] == "ok" and "1 differ" in summary["note"]
+
+
+def test_basis_compare_aligns_periods_a_day_apart():
+    from mcl import verify
+    ends = pd.to_datetime(["2009-11-01", "2010-01-31", "2010-05-02", "2010-07-31"])
+    q = pd.DataFrame({"period_end": ends, "filed": ends + pd.Timedelta(days=30), "revenue": [1.0, 1.0, 1.0, 1.0]})
+    rows = pd.DataFrame({"knowledge_date": pd.to_datetime(["2010-08-30"]), "period_end": pd.to_datetime(["2010-08-01"]),
+                         "ttm_revenue": [4.0], "ttm_revenue_prev": [np.nan]})
+    r = pd.DataFrame(verify.basis_compare(q, rows))
+    summary = r.iloc[-1]
+    assert summary["status"] == "ok" and summary["note"].startswith("1 periods compared, 0 differ")
+    assert "misses 0" in summary["note"]

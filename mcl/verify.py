@@ -368,24 +368,38 @@ def earnings_dates(sec_dates: pd.DataFrame, yahoo_dates: pd.DataFrame, today=Non
 
 
 def basis_compare(q: pd.DataFrame, asof_rows: pd.DataFrame | None) -> list[dict]:
-    """First-reported TTM vs the restated-as-of TTM first known for the same period."""
+    """First-reported TTM vs the restated-as-of TTM first known for the same period.
+
+    Periods are matched within 10 days (52/53-week calendars and tagging quirks).
+    A first-reported TTM that only became usable 150+ days after its period end
+    (built from comparatives filed much later) is not counted as a miss.
+    """
     from .analytics import valuation
     if q is None or q.empty or asof_rows is None or asof_rows.empty:
         return [_row("asof", "all", status="info", note="no rows to compare")]
     tf = valuation.ttm(q).set_index("period_end")
-    ta = valuation.ttm_asof(asof_rows)
-    first_view = ta.groupby("period_end").first()
-    out, n, differ, gained, lost = [], 0, 0, 0, 0
+    fv = valuation.ttm_asof(asof_rows).groupby("period_end").first()
+    first_pe = tf.index.to_numpy()
+    key_of = {}
+    for pa in fv.index:
+        d = np.abs(first_pe - np.datetime64(pa))
+        key_of[pa] = pd.Timestamp(first_pe[d.argmin()]) if len(d) and d.min() <= np.timedelta64(10, "D") else pa
+    asof_by_key = {key_of[pa]: pa for pa in fv.index}
+    out, n, differ, gained, lost, late = [], 0, 0, 0, 0, 0
     for key in ("revenue", "net_income"):
         col = f"ttm_{key}"
-        if col not in tf or col not in first_view:
+        if col not in tf or col not in fv:
             continue
-        for pe in sorted(set(tf.index) | set(first_view.index)):
-            a = float(tf[col].get(pe, np.nan)) if pe in tf.index else np.nan
-            b = float(first_view[col].get(pe, np.nan)) if pe in first_view.index else np.nan
+        for pe in sorted(set(tf.index) | set(asof_by_key)):
+            a = float(tf.at[pe, col]) if pe in tf.index else np.nan
+            pa = asof_by_key.get(pe)
+            b = float(fv.at[pa, col]) if pa is not None else np.nan
             if not np.isfinite(a) and not np.isfinite(b):
                 continue
             if np.isfinite(a) and not np.isfinite(b):
+                if (tf.at[pe, "available"] - pe).days > 150:
+                    late += 1
+                    continue
                 lost += 1
                 out.append(_row("asof", key, pe, a, compare_to="asof TTM", status="warn",
                                 note="first-reported TTM exists but the as-of TTM could not be built"))
@@ -395,12 +409,13 @@ def basis_compare(q: pd.DataFrame, asof_rows: pd.DataFrame | None) -> list[dict]
                 n += 1
                 if not _close(a, b):
                     differ += 1
-                    known = (first_view.loc[pe, "available"] - pd.Timedelta(days=1)).date()
+                    known = (fv.at[pa, "available"] - pd.Timedelta(days=1)).date()
                     out.append(_row("asof", key, pe, a, compare_to="asof TTM", compare_value=b, status="info",
                                     note=f"as-of applies a restatement already filed by {known}"))
     out.append(_row("asof", "summary", status="warn" if lost else "ok",
-                    note=f"{n} periods compared, {differ} differ (restatements applied from their filing date); "
-                         f"as-of adds {gained} TTM values the first-reported basis lacks, misses {lost}"))
+                    note=f"{n} periods compared, {differ} differ (restatements applied from their filing date); as-of adds "
+                         f"{gained} TTM values the first-reported basis lacks, misses {lost} "
+                         f"(plus {late} first-reported values that only existed 150+ days after period end)"))
     return out
 
 
