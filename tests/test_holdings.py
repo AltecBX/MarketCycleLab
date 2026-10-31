@@ -229,3 +229,19 @@ def test_nonstandard_contracts_are_left_out():
     # even if such a row gets through, the 0.20 delta pick ignores it
     row = options.delta_pick(calls, 62.08, 77 / 365, 0.20)
     assert row["strike"] == 80.0
+
+
+def test_incomplete_strike_list_makes_itm_flag_uncertain():
+    # live SMH 2026-12-04 strikes from Yahoo near the money; stock 522.49
+    smh = [500.0, 525.0, 530.0, 532.5, 535.0, 540.0, 545.0, 550.0, 560.0, 567.5, 570.0, 572.5, 575.0]
+    q = options.qualified_covered_call(smh, 522.49, 35, 510.0)
+    assert q["qualified"] is None and "Confirm the listed strikes" in " ".join(q["notes"])
+    assert options.qualified_covered_call(smh, 522.49, 35, 550.0)["qualified"] is True      # out of the money: unaffected
+    assert options.qualified_covered_call(smh, 522.49, 35, 430.0)["qualified"] is False     # deep in any case
+    # live SMH 2027-01-15: $5 spacing through the range, nothing uncertain
+    full = [float(k) for k in range(480, 605, 5)]
+    assert options.strike_gap(full, 522.49)[0] is False
+    assert options.qualified_covered_call(full, 522.49, 77, 520.0)["qualified"] is True
+    # AAPL 11/20 (2.50 spacing, price 344.63) and MU 12/18 (10 spacing, price 884.74): complete
+    assert options.strike_gap([320 + 2.5 * i for i in range(17)], 344.63)[0] is False
+    assert options.strike_gap([840.0, 850, 860, 870, 880, 890, 900], 884.74)[0] is False

@@ -70,7 +70,22 @@ def lowest_qualified_benchmark(strikes, applicable_price: float, days_to_expiry:
     return lqb
 
 
+def strike_gap(strikes, applicable_price: float) -> tuple[bool, float, float]:
+    """Whether the listed strikes look incomplete just below the price: the gap from the price down to the
+    highest strike below it is more than twice the tightest spacing among strikes within 15% of the price.
+    (Live case: Yahoo's SMH 2026-12-04 chain had 26 calls and nothing between 500 and 525, stock 522.49.)"""
+    ks = sorted({float(x) for x in strikes})
+    below = [k for k in ks if k < applicable_price]
+    near = [k for k in ks if abs(k / applicable_price - 1) <= 0.15]
+    if not below or len(near) < 3:
+        return False, np.nan, np.nan
+    step = float(np.min(np.diff(near)))
+    gap = applicable_price - below[-1]
+    return bool(gap > 2 * step + 1e-9), below[-1], step
+
+
 def qualified_covered_call(strikes, applicable_price: float, days_to_expiry: int, strike: float) -> dict:
+    """qualified is True, False, or None when the answer depends on strikes missing from the list."""
     lqb = lowest_qualified_benchmark(strikes, applicable_price, days_to_expiry, strike)
     deep = bool(np.isfinite(lqb) and strike < lqb)
     qualified = days_to_expiry > 30 and not deep
@@ -79,6 +94,12 @@ def qualified_covered_call(strikes, applicable_price: float, days_to_expiry: int
         notes.append("30 days or less to expiration: not a qualified covered call")
     if deep:
         notes.append(f"deep in the money (strike below the benchmark {lqb:.2f}): not a qualified covered call")
+    gappy, k_below, step = strike_gap(strikes, applicable_price)
+    if qualified and gappy and strike < applicable_price:
+        qualified = None
+        notes.append(f"the strike list has no strikes between {k_below:g} and the price {applicable_price:.2f} although "
+                     f"strikes {step:g} apart are listed nearby; the benchmark may be higher than {lqb:.2f}. "
+                     f"Confirm the listed strikes with your broker")
     if qualified and strike < applicable_price:
         notes.append("qualified but in the money: the stock's holding period stops while the call is open")
     return {"qualified": qualified, "lqb": lqb, "deep_itm": deep, "notes": notes}

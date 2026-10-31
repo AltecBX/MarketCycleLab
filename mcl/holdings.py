@@ -398,6 +398,12 @@ def render_portfolio(p: dict, budget: float, window: int) -> str:
     return "\n".join(L)
 
 
+def _qcc(q) -> str:
+    if q is None or (isinstance(q, float) and np.isnan(q)):
+        return "check with broker"
+    return "yes" if q else "no"
+
+
 def render_options(ticker: str, S: float, shares: float, expiry: str, days: int, st: pd.DataFrame,
                    pay: pd.DataFrame, nd: pd.DataFrame, note: str = "") -> str:
     L = [f"#### {ticker} options expiring {expiry} ({days} days); stock {_usd(S, 2)}; {int(shares)} shares",
@@ -412,7 +418,7 @@ def render_options(ticker: str, S: float, shares: float, expiry: str, days: int,
             L.append(f"| {r.label} | {r.strike:g} | {r.coverage:.0%} | {r.contracts} | {_usd(r.premium_total)} "
                      f"({_usd(r.premium_per_share, 2)}/sh, {r.quote}) | {_usd(r.time_value, 2)}/sh | {_usd(r.sale_price_if_assigned, 2)} | "
                      f"{_usd(r.downside_breakeven, 2)} | {r.delta:.2f} | {r.stock_equivalent_shares:,.0f} | "
-                     f"{'yes' if r.qualified_covered_call else 'no'} | {r.tax_notes} |")
+                     f"{_qcc(r.qualified_covered_call)} | {r.tax_notes} |")
     other = st[st["strategy"] != "covered call"]
     if len(other):
         L.append("| Choice | Strike | Coverage | Contracts | Net premium | Floor per share | Notes |")
