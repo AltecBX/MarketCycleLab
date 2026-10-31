@@ -322,5 +322,6 @@ def test_dashboard_json_is_strict_and_complete(monkeypatch, tmp_path):
     assert {"ma20_side", "ma50_gap", "ma200_sessions", "budget_state", "bad_night"} <= set(h["CCC"])
     port = rows["portfolio"][0]
     assert port["positions"] == 3 and math.isclose(port["paid"], 38010 + 110800 + 175000)
+    assert math.isclose(port["stress_included_share"] + port["stress_left_out_share"], 1.0)
     for r in rows["holdings"]:                                   # strict JSON: no NaN slipped through
         json.dumps(r, allow_nan=False)
