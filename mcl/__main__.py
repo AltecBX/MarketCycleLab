@@ -10,7 +10,8 @@
   doctor [--offline]          preflight: Python, packages, SEC contact header, and each data source
   holdings [TICKER ...]       holdings monitor: giveback budget, recovery, earnings risk, streaks, portfolio
                               exposure; --options adds covered call, put and collar payoffs from today's chain;
-                              reads data/user/holdings.csv or --position-csv (a CSV download of a Position sheet)
+                              input: symbol, price paid, quantity (data/user/holdings.csv, or --position-csv:
+                              the Position sheet as CSV or as Google Sheets JSON values)
   demo                        HTML report on synthetic data (no network)
 """
 from __future__ import annotations
@@ -47,8 +48,8 @@ def main(argv=None) -> int:
     v.add_argument("--no-yahoo", action="store_true", help="SEC-only checks")
     hp = sub.add_parser("holdings")
     hp.add_argument("tickers", nargs="*")
-    hp.add_argument("--file", help="holdings CSV (default data/user/holdings.csv)")
-    hp.add_argument("--position-csv", help="CSV download of a Position sheet (tickers across row 1)")
+    hp.add_argument("--file", help="CSV with symbol, price paid, quantity (default data/user/holdings.csv)")
+    hp.add_argument("--position-csv", help="the Position sheet: CSV download or Google Sheets values JSON")
     hp.add_argument("--options", action="store_true", help="add option payoffs from today's chain")
     hp.add_argument("--giveback", type=float, default=0.25, help="share of peak gain you accept giving back")
     hp.add_argument("--window", type=int, default=63, help="sessions over which the peak is measured")

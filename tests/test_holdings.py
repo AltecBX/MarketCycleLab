@@ -22,19 +22,36 @@ Option Profit,"$10,731.00","$4,228.00","-$140.00",$500.00,,,
 def test_read_position_layout(tmp_path):
     p = tmp_path / "position.csv"
     p.write_text(POSITION_CSV)
-    h = holdings.read_holdings(p).set_index("ticker")
+    h = holdings.read_holdings(p)
+    assert list(h.columns) == ["ticker", "shares", "cost"]              # symbol, quantity, price paid: nothing else
+    h = h.set_index("ticker")
     assert list(h.index) == ["AAA", "BBB", "CCC"]                      # DDD has 0 shares; columns after Total ignored
     assert h.loc["AAA", "shares"] == 300 and h.loc["AAA", "cost"] == 126.70
-    assert h.loc["CCC", "cost"] == 1750.0 and h.loc["CCC", "option_income"] == -140.0
-    assert h.loc["BBB", "option_income"] == 4228.0
+    assert h.loc["CCC", "cost"] == 1750.0 and h.loc["BBB", "shares"] == 400
+
+
+def test_read_sheet_values_json(tmp_path):
+    # the Position tab as Google Sheets returns it (rows can be shorter than the header)
+    import json
+    values = [["", "AAA", "BBB", "CCC", "Total", "notes"], ["Current Price", "$69.05", "$344.63", "$5.00"],
+              ["Price Paid", "$126.70", "$277.00"], ["Quantity", "300", "400", "0", "", "x"]]
+    p = tmp_path / "position.json"
+    p.write_text(json.dumps({"range": "Position!A1:F4", "values": values}))
+    h = holdings.read_holdings(p).set_index("ticker")
+    assert list(h.index) == ["AAA", "BBB"] and h.loc["BBB", "cost"] == 277.0 and h.loc["AAA", "shares"] == 300
 
 
 def test_read_simple_csv(tmp_path):
     p = tmp_path / "holdings.csv"
-    p.write_text("ticker,shares,cost,acquired,willing_to_sell\naapl,400,277,2023-05-01,0.5\nsndk,100,1750,,\n")
+    p.write_text("Symbol,Price Paid,Quantity\naapl,$277.00,400\nsndk,\"$1,750.00\",100\naapl,$300.00,100\nxyz,10,0\n")
     h = holdings.read_holdings(p).set_index("ticker")
-    assert h.loc["AAPL", "shares"] == 400 and h.loc["AAPL", "willing_to_sell"] == 0.5
-    assert pd.Timestamp(h.loc["AAPL", "acquired"]) == pd.Timestamp("2023-05-01") and pd.isna(h.loc["SNDK", "acquired"])
+    assert list(h.index) == ["AAPL", "SNDK"]                           # 0 shares skipped
+    assert h.loc["AAPL", "shares"] == 500
+    assert math.isclose(h.loc["AAPL", "cost"], (400 * 277 + 100 * 300) / 500)   # lots at the weighted average
+    assert h.loc["SNDK", "cost"] == 1750.0
+    q = tmp_path / "old.csv"
+    q.write_text("ticker,shares,cost\nMU,100,980\n")                   # older column names still work
+    assert holdings.read_holdings(q).set_index("ticker").loc["MU", "cost"] == 980.0
 
 
 @pytest.mark.parametrize("raw,want", [("$1,234.50", 1234.5), ("-$1,320.00", -1320.0), ("12.5%", 12.5), ("", None),
@@ -58,7 +75,7 @@ def test_recovery_counts_completed_episodes():
     # two completed drawdowns (−40%, −20%), then a current one at −30%
     path = [100, 80, 60, 80, 100, 110, 100, 88, 100, 120, 100, 90, 84]
     close = pd.Series(path, index=pd.bdate_range("2020-01-01", periods=len(path)), dtype=float)
-    r = holdings.recovery(close, cost=120, effective_cost=110)
+    r = holdings.recovery(close, cost=120)
     assert math.isclose(r["from_high_pct"], 84 / 120 - 1)
     ep = r["episodes"]
     assert ep["n_reached"] == 1                                          # only the −40% episode reached −30%
@@ -160,7 +177,8 @@ def test_run_offline(monkeypatch, tmp_path):
     p = tmp_path / "position.csv"
     p.write_text(POSITION_CSV)
     text = holdings.run(position_csv=p)
-    assert "# Holdings monitor" in text and "## Portfolio" in text
+    assert "# Holdings monitor" in text and "## Holdings" in text and "## Portfolio" in text
+    assert "| AAA | 300 | $126.70 | $38,010 |" in text and "Option" not in text
     for t in ("AAA", "BBB", "CCC"):
         assert f"### {t}" in text
     assert "Giveback" in text or "Recovery" in text
@@ -247,14 +265,18 @@ def test_incomplete_strike_list_makes_itm_flag_uncertain():
     assert options.strike_gap([840.0, 850, 860, 870, 880, 890, 900], 884.74)[0] is False
 
 
-def test_recovery_line_when_option_income_covers_the_loss():
+def test_holdings_table_and_card_use_only_symbol_price_paid_quantity():
     idx = pd.bdate_range("2024-01-02", periods=300)
     path = np.r_[np.linspace(800, 1200, 200), np.linspace(1200, 884.74, 100)]
     prices = pd.DataFrame({"close": path, "open": path, "high": path, "low": path, "volume": 1.0}, index=idx)
-    h = pd.Series({"ticker": "MU", "shares": 100, "cost": 980.0, "option_income": 30279.0})
-    text = holdings.render_card(holdings.position_card(h, prices, None))
-    assert "rally needed to cost +10.8%" in text
-    assert "price already 30.6% above the cost after option income ($677.21)" in text
+    c = holdings.position_card(pd.Series({"ticker": "MU", "shares": 100, "cost": 980.0}), prices, None)
+    text = holdings.render_card(c)
+    assert "Bought 100 shares at $980.00 ($98,000 paid); worth $88,474 now; gain or loss −$9,526 (−9.7%)" in text
+    assert "rise needed to get back to the price paid +10.8%" in text
+    assert "option" not in text.lower() and "tax term" not in text
+    table = holdings.render_holdings([c])
+    assert "| MU | 100 | $980.00 | $98,000 | $884.74 | $88,474 | −$9,526 | −9.7% |" in table
+    assert "| Total (1) | | | $98,000 | | $88,474 | −$9,526 | −9.7% |" in table
 
 
 def test_split_adjusted_contracts_under_standard_symbols():

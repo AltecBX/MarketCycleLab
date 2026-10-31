@@ -6,13 +6,15 @@ how far a losing position is from its cost, the earnings and gap risk ahead,
 moving average streak context, and (with --options) the complete payoffs of
 covered calls, puts and collars from today's option chain.
 
-Inputs (both stay on the user's machine; data/user/ files are git-ignored):
-* data/user/holdings.csv with columns ticker, shares, cost (per share), and
-  optional option_income (premium collected, from the user's records),
-  acquired (YYYY-MM-DD, for tax term), willing_to_sell (0 to 1); or
-* a CSV download of a "Position" sheet laid out with tickers across row 1 and
-  the rows "Price Paid", "Quantity" and "Option Profit" (Google Sheets: File,
-  Download, Comma separated values, current sheet), passed with --position-csv.
+Input: only the stock symbol, the price paid per share and the number of shares.
+* The Position sheet: symbols across row 1 up to "Total", and the rows labeled
+  "Price Paid" and "Quantity" in column A. Every other row is ignored. Either a
+  CSV download or the Google Sheets values saved as JSON ({"values": [[...]]}).
+* Or a simple CSV with columns symbol (or ticker), price paid (or cost) and
+  quantity (or shares). Several lots of one symbol are combined at the
+  weighted average price.
+The repository is public: data/user/ and reports/holdings_*.md are git ignored
+and must never be committed.
 
 Nothing here recommends an action. Each number is labeled: position math and
 prices are facts; outcome statistics are historical associations with their
@@ -45,6 +47,17 @@ def parse_number(x) -> float:
     return -v if neg else v
 
 
+def _raw_table(path: str | Path) -> pd.DataFrame:
+    """The file as a grid of strings: CSV, or JSON as Google Sheets returns values."""
+    if str(path).lower().endswith(".json"):
+        import json
+        data = json.loads(Path(path).read_text())
+        values = data["values"] if isinstance(data, dict) else data
+        width = max(len(r) for r in values)
+        return pd.DataFrame([[str(v) for v in r] + [""] * (width - len(r)) for r in values])
+    return pd.read_csv(path, header=None, dtype=str, keep_default_na=False)
+
+
 def _from_position_layout(raw: pd.DataFrame) -> pd.DataFrame:
     header = raw.iloc[0].tolist()
     cols = []
@@ -63,34 +76,39 @@ def _from_position_layout(raw: pd.DataFrame) -> pd.DataFrame:
         shares = parse_number(raw.iloc[label["quantity"], j])
         if not np.isfinite(shares) or shares <= 0:
             continue
-        rows.append({"ticker": t, "shares": shares, "cost": parse_number(raw.iloc[label["price paid"], j]),
-                     "option_income": parse_number(raw.iloc[label["option profit"], j]) if "option profit" in label else np.nan})
-    return pd.DataFrame(rows)
+        rows.append({"ticker": t, "shares": shares, "cost": parse_number(raw.iloc[label["price paid"], j])})
+    return pd.DataFrame(rows, columns=["ticker", "shares", "cost"])
+
+
+def _pick(cols: list[str], *names: str) -> int | None:
+    for n in names:
+        if n in cols:
+            return cols.index(n)
+    return None
 
 
 def read_holdings(path: str | Path) -> pd.DataFrame:
-    raw = pd.read_csv(path, header=None, dtype=str, keep_default_na=False)
+    """Columns ticker, shares, cost (price paid per share). Nothing else is read."""
+    raw = _raw_table(path)
     first = [str(x).strip().lower() for x in raw.iloc[0]]
-    if "ticker" in first:
-        df = pd.read_csv(path, dtype=str, keep_default_na=False)
-        df.columns = [c.strip().lower() for c in df.columns]
-        out = pd.DataFrame({"ticker": df["ticker"].str.strip().str.upper(),
-                            "shares": df["shares"].map(parse_number),
-                            "cost": df["cost"].map(parse_number) if "cost" in df else np.nan})
-        for c in ("option_income", "willing_to_sell"):
-            out[c] = df[c].map(parse_number) if c in df else np.nan
-        out["acquired"] = pd.to_datetime(df["acquired"], errors="coerce") if "acquired" in df else pd.NaT
+    sym = _pick(first, "symbol", "ticker")
+    if sym is not None:
+        qty, paid = _pick(first, "quantity", "shares"), _pick(first, "price paid", "price_paid", "cost")
+        if qty is None or paid is None:
+            raise ValueError(f"{path}: needs columns symbol, price paid and quantity")
+        body = raw.iloc[1:]
+        out = pd.DataFrame({"ticker": body[sym].str.strip().str.upper(),
+                            "shares": body[qty].map(parse_number), "cost": body[paid].map(parse_number)})
         out = out[out["shares"] > 0]
     elif any(str(x).strip().lower() == "quantity" for x in raw.iloc[:, 0]):
         out = _from_position_layout(raw)
-        out["willing_to_sell"] = np.nan
-        out["acquired"] = pd.NaT
     else:
-        raise ValueError(f"{path}: expected a 'ticker' column or a Position layout with a 'Quantity' row")
-    out = out[out["ticker"].str.match(r"^[A-Z][A-Z0-9.\-]{0,9}$")]
-    return out.groupby("ticker", as_index=False).agg(
-        shares=("shares", "sum"), cost=("cost", "first"), option_income=("option_income", "first"),
-        acquired=("acquired", "min"), willing_to_sell=("willing_to_sell", "first"))
+        raise ValueError(f"{path}: expected columns symbol, price paid, quantity, or the Position sheet layout")
+    out = out[out["ticker"].str.match(r"^[A-Z][A-Z0-9.\-]{0,9}$")].copy()
+    out["paid"] = out["shares"] * out["cost"]
+    g = out.groupby("ticker", as_index=False).agg(shares=("shares", "sum"), paid=("paid", lambda x: x.sum(min_count=1)))
+    g["cost"] = g["paid"] / g["shares"]                      # weighted average price paid across lots
+    return g[["ticker", "shares", "cost"]]
 
 
 def default_path() -> Path:
@@ -117,7 +135,7 @@ def giveback(close: pd.Series, cost: float, budget: float = DEFAULT_GIVEBACK, wi
     return out
 
 
-def recovery(close: pd.Series, cost: float, effective_cost: float | None = None) -> dict:
+def recovery(close: pd.Series, cost: float) -> dict:
     """Distance to cost, and how past drawdowns at least this deep (from the running high) resolved."""
     c = close.dropna()
     v = c.to_numpy(float)
@@ -127,8 +145,7 @@ def recovery(close: pd.Series, cost: float, effective_cost: float | None = None)
     depth = float(dd[-1])
     out = {"from_high_pct": depth, "high": float(hwm[-1]),
            "high_date": c.index[int(np.flatnonzero(v == hwm[-1])[-1])] if len(v) else None,
-           "rally_to_cost_pct": cost / price - 1.0 if np.isfinite(cost) else np.nan,
-           "rally_to_effective_cost_pct": (effective_cost / price - 1.0) if effective_cost and np.isfinite(effective_cost) else np.nan}
+           "rally_to_cost_pct": cost / price - 1.0 if np.isfinite(cost) else np.nan}
     if depth > -0.05:
         out["episodes"] = None
         return out
@@ -190,22 +207,14 @@ def position_card(h: pd.Series, prices: pd.DataFrame, earnings: pd.DataFrame | N
     as_of = close.index[-1]
     price = float(close.iloc[-1])
     shares, cost = float(h["shares"]), float(h["cost"]) if pd.notna(h.get("cost")) else np.nan
-    oi = float(h["option_income"]) if pd.notna(h.get("option_income")) else np.nan
-    eff = cost - oi / shares if np.isfinite(cost) and np.isfinite(oi) else np.nan
-    card = {"ticker": h["ticker"], "as_of": as_of, "price": price, "shares": shares, "cost": cost, "value": shares * price,
+    card = {"ticker": h["ticker"], "as_of": as_of, "price": price, "shares": shares, "cost": cost,
+            "paid": shares * cost if np.isfinite(cost) else np.nan, "value": shares * price,
             "unrealized": shares * (price - cost) if np.isfinite(cost) else np.nan,
             "unrealized_pct": price / cost - 1.0 if np.isfinite(cost) and cost > 0 else np.nan,
-            "option_income": oi, "effective_cost": eff,
-            "acquired": h.get("acquired"), "willing_to_sell": h.get("willing_to_sell"),
             "history_start": close.index[0]}
-    acq = h.get("acquired")
-    if acq is not None and pd.notna(acq):
-        card["tax_term"] = "long term" if (as_of - pd.Timestamp(acq)).days > 365 else "short term"
-    else:
-        card["tax_term"] = "unknown (no purchase date)"
     gb = giveback(close, cost, budget, window)
     card["giveback"] = gb
-    card["recovery"] = recovery(close, cost, eff)
+    card["recovery"] = recovery(close, cost)
     er = earnings_risk(prices, earnings, as_of)
     card["earnings"] = er
     if gb.get("applies"):
@@ -221,14 +230,12 @@ def position_card(h: pd.Series, prices: pd.DataFrame, earnings: pd.DataFrame | N
 # ---------------------------------------------------------------- portfolio
 def portfolio(cards: list[dict], closes: pd.DataFrame, spy: pd.Series | None, smh: pd.Series | None,
               lookback: int = 504) -> dict:
-    df = pd.DataFrame([{k: c[k] for k in ("ticker", "shares", "price", "value", "cost", "unrealized", "option_income")}
-                       for c in cards])
+    df = pd.DataFrame([{k: c[k] for k in ("ticker", "shares", "price", "value", "cost", "unrealized")} for c in cards])
     total = float(df["value"].sum())
     df["weight"] = df["value"] / total if total else np.nan
     out = {"positions": df.sort_values("value", ascending=False), "total_value": total,
            "total_cost": float((df["shares"] * df["cost"]).sum(min_count=1)),
-           "total_unrealized": float(df["unrealized"].sum(min_count=1)),
-           "total_option_income": float(df["option_income"].sum(min_count=1))}
+           "total_unrealized": float(df["unrealized"].sum(min_count=1))}
     # earnings in the next 10 sessions
     soon = [(c["ticker"], c["earnings"]["next_date"], c["earnings"]["sessions_to"], c["value"]) for c in cards
             if c["earnings"].get("sessions_to") is not None and c["earnings"]["sessions_to"] <= 10]
@@ -301,10 +308,8 @@ def _usd(x, digits=0) -> str:
 
 def render_card(c: dict) -> str:
     L = [f"### {c['ticker']}  {_usd(c['price'], 2)} on {c['as_of'].date()}"]
-    L.append(f"* Position: {c['shares']:,.0f} shares, cost {_usd(c['cost'], 2)}, value {_usd(c['value'])}, "
-             f"unrealized {_usd(c['unrealized'])} ({_pct(c['unrealized_pct'])}); tax term {c['tax_term']}")
-    if np.isfinite(c.get("option_income", np.nan)):
-        L.append(f"* Option income recorded {_usd(c['option_income'])}; cost after that income {_usd(c['effective_cost'], 2)} per share")
+    L.append(f"* Bought {c['shares']:,.0f} shares at {_usd(c['cost'], 2)} ({_usd(c['paid'])} paid); worth "
+             f"{_usd(c['value'])} now; gain or loss {_usd(c['unrealized'])} ({_pct(c['unrealized_pct'])})")
     g = c["giveback"]
     below_cost = np.isfinite(c["cost"]) and c["price"] < c["cost"]
     if g.get("applies"):
@@ -328,13 +333,7 @@ def render_card(c: dict) -> str:
         line = f"* Recovery: {_pct(rec['from_high_pct'])} from the high {_usd(rec['high'], 2)}"
         if rec.get("high_date") is not None:
             line += f" ({pd.Timestamp(rec['high_date']).date()})"
-        line += f"; rally needed to cost {_pct(rec['rally_to_cost_pct'])}"
-        r_eff = rec.get("rally_to_effective_cost_pct", np.nan)
-        if np.isfinite(r_eff) and r_eff > 0:
-            line += f", to cost after option income {_pct(r_eff)}"
-        elif np.isfinite(r_eff):
-            line += (f"; price already {_pct(1 / (1 + r_eff) - 1, 1, False)} above the cost after option income "
-                     f"({_usd(c['effective_cost'], 2)})")
+        line += f"; rise needed to get back to the price paid {_pct(rec['rally_to_cost_pct'])}"
         L.append(line)
         ep = rec.get("episodes")
         if ep:
@@ -375,10 +374,26 @@ def render_card(c: dict) -> str:
     return "\n".join(L)
 
 
+def render_holdings(cards: list[dict]) -> str:
+    """What was bought, at what price, how many shares, and what it is worth now."""
+    L = ["## Holdings",
+         "| Symbol | Shares | Price paid | Paid | Price now | Worth now | Gain or loss | Gain or loss % |",
+         "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for c in sorted(cards, key=lambda c: -c["value"]):
+        L.append(f"| {c['ticker']} | {c['shares']:,.0f} | {_usd(c['cost'], 2)} | {_usd(c['paid'])} | {_usd(c['price'], 2)} | "
+                 f"{_usd(c['value'])} | {_usd(c['unrealized'])} | {_pct(c['unrealized_pct'])} |")
+    paid = sum(c["paid"] for c in cards if np.isfinite(c["paid"]))
+    value = sum(c["value"] for c in cards)
+    gain = sum(c["unrealized"] for c in cards if np.isfinite(c["unrealized"]))
+    L.append(f"| Total ({len(cards)}) | | | {_usd(paid)} | | {_usd(value)} | {_usd(gain)} | "
+             f"{_pct(gain / paid if paid else np.nan)} |")
+    return "\n".join(L)
+
+
 def render_portfolio(p: dict, budget: float, window: int) -> str:
     L = ["## Portfolio",
-         f"* Value {_usd(p['total_value'])}; cost {_usd(p['total_cost'])}; unrealized {_usd(p['total_unrealized'])}; "
-         f"option income recorded {_usd(p['total_option_income'])}",
+         f"* Paid {_usd(p['total_cost'])}; worth {_usd(p['total_value'])} now; gain or loss {_usd(p['total_unrealized'])} "
+         f"({_pct(p['total_unrealized'] / p['total_cost'] if p['total_cost'] else np.nan)})",
          f"* Giveback budget used for every position: {_pct(budget, 0, False)} of the peak gain over {window} sessions "
          f"(default; set with --giveback and --window)"]
     top = p["positions"].head(10)
@@ -517,8 +532,8 @@ def run(path: str | Path | None = None, position_csv: str | Path | None = None, 
     from .data import loader
     src = position_csv or path or default_path()
     if not Path(src).exists():
-        raise FileNotFoundError(f"{src} not found. Create data/user/holdings.csv (ticker,shares,cost,...) or pass "
-                                f"--position-csv with a CSV download of the Position sheet.")
+        raise FileNotFoundError(f"{src} not found. Create data/user/holdings.csv (symbol, price paid, quantity) or pass "
+                                f"--position-csv with the Position sheet (CSV, or JSON values).")
     h = read_holdings(src)
     if tickers:
         h = h[h["ticker"].isin([t.upper() for t in tickers])]
@@ -544,6 +559,7 @@ def run(path: str | Path | None = None, position_csv: str | Path | None = None, 
     parts = [f"# Holdings monitor, prices through {as_of}",
              "Facts: positions and prices. Associations (with counts): streak and recovery outcomes, reaction ranges. "
              "Model estimates: option values before expiration. Nothing here is a recommendation.",
+             render_holdings(cards),
              render_portfolio(port, budget, window)]
     if skipped:
         parts.append("* Skipped: " + "; ".join(skipped))

@@ -64,11 +64,7 @@ Long run S&P 500 study (no API keys needed):
 python -m mcl market
 ```
 
-Holdings monitor (giveback budget, recovery view, earnings gap risk, average streaks, portfolio exposure; details below):
-
-```bash
-python -m mcl holdings --position-csv data/user/position.csv
-```
+Holdings monitor: runs on its own in the cloud every weekday after the close (details below).
 
 Check the SEC fundamentals before trusting a valuation study (details below):
 
@@ -84,17 +80,38 @@ python -m pytest -q
 
 ## Holdings monitor
 
-Input, either one (both are git ignored, as are the `reports/holdings_*.md` outputs):
-* `data/user/holdings.csv` with columns `ticker,shares,cost` and optional `option_income,acquired,willing_to_sell`.
-* A CSV download of the Position sheet (Google Sheets: File, Download, Comma separated values, with the Position tab open), saved as `data/user/position.csv` and passed with `--position-csv`. Row 1 holds tickers up to the "Total" column; rows "Quantity", "Price Paid" and "Option Profit" are read by their labels in column A. Positions with 0 shares are skipped.
+**No commands needed.** A scheduled task in Claude runs the monitor every weekday at 5:13pm New York time, after the close. Each run starts a fresh cloud session that:
+1. reads the Position tab of the holdings spreadsheet through the Google Sheets connector,
+2. runs the monitor here, and
+3. sends the report to the Claude app.
+
+To run it at any other time, ask Claude to run the holdings report, or use Run now on the scheduled task in the Claude app. Name tickers to also get the option panel for them. The task's instructions live in the Claude account, not in this repository.
+
+**Input: only the stock symbol, the price paid and the quantity.** From the Position tab, row 1 holds the symbols up to the "Total" column. The rows labeled "Price Paid" and "Quantity" are read from column A. Every other row is ignored, and positions with 0 shares are skipped. A simple CSV with the columns `symbol,price paid,quantity` also works, and several lots of one symbol are combined at the weighted average price.
+
+**This repository is public.** Holdings files (`data/user/`) and reports (`reports/holdings_*.md`) are git ignored and must never be committed. Reports reach you only through the Claude app.
+
+**What the report shows**
+* A holdings table: symbol, shares, price paid, total paid, price now, worth now, and gain or loss in dollars and percent.
+* Per position:
+  * the giveback budget (default 25% of the peak gain over 63 sessions) and the price where it runs out
+  * a recovery view for positions below the price paid
+  * the next report date and the stock's past one night reactions
+  * 20/50/200 day average streaks next to the baseline for all days on the same side
+* Portfolio: earnings clustering, a stress replay with today's shares, betas with two linear scenarios, and pairs that fell together on SPY down days.
+* With options:
+  * covered calls (0.20 delta, 5/10/15% out of the money, 10% in the money), a 10% out of the money put and a collar, at 25/50/100% coverage
+  * payoffs at expiration and next day estimates
+  * qualified covered call flags under IRC 1092(c)(4)
+
+Streak, recovery and reaction numbers are historical associations with counts, not predictions.
+
+For development only (the scheduled task runs these itself):
 
 ```bash
-python -m mcl holdings --position-csv data/user/position.csv
-python -m mcl holdings AAPL MU --position-csv data/user/position.csv --options
-python -m mcl holdings --giveback 0.20 --window 42
+python -m mcl holdings --position-csv data/user/position.json
+python -m mcl holdings AAPL MU --position-csv data/user/position.json --options
 ```
-
-Each card shows the position, the giveback budget (default 25% of the peak unrealized gain over 63 sessions) and the price where it runs out, a recovery view for positions below cost, the next report date and the stock's past one night reactions, and 20/50/200 day average streaks next to the baseline for all days on the same side. The portfolio section shows earnings clustering, a stress replay with today's shares, betas with two linear scenarios, and pairs that fell together on SPY down days. `--options` adds today's chain for the expirations around the next report: covered calls (0.20 delta, 5/10/15% out of the money, 10% in the money), a 10% out of the money put and a collar, at 25/50/100% coverage, with payoffs at expiration, next day estimates and qualified covered call flags (IRC 1092(c)(4)). Streak, recovery and reaction numbers are historical associations with counts, not predictions.
 
 ## Verifying SEC fundamentals
 

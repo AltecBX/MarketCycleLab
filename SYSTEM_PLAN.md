@@ -226,9 +226,11 @@ Can be implemented immediately: everything in phases 1 and 2. Requires more data
 Everything in this MVP runs on free data that the system already verifies. None of it says what to do; it shows the position, the comparables and the prices of each choice.
 
 **Status (built, `mcl/holdings.py`, `mcl/options.py`, `mcl/analytics/streaks.py`):**
-* Input is a CSV, not the JSON above: `data/user/holdings.csv` (ticker, shares, cost, optional option_income, acquired, willing_to_sell) or a CSV download of the Position sheet (`--position-csv`). Budget and window are flags (`--giveback`, `--window`), one setting for all positions.
+* Input is only the stock symbol, the price paid and the quantity, read from the Position tab of the holdings spreadsheet (the user's choice, replacing the JSON above). Budget and window are flags (`--giveback`, `--window`), one setting for all positions.
+* Runs with no commands: a Claude scheduled task (weekdays 5:13pm New York time, or on request) reads the sheet through the Google Sheets connector, runs the monitor in a fresh cloud session and sends the report to the Claude app. The repository is public, so holdings and reports never go to git.
 * Built: position, giveback budget and floor price, recovery view with past drawdowns of the same depth, next report date, past one night reactions and whether a 1 in 10 bad night uses the budget room, 20/50/200 day streaks with baseline, portfolio exposure, option panel (adds a 0.20 delta call), qualified covered call test checked against the verbatim text of 1092(c)(4)(D)(i) to (iv).
-* Not built yet: lead in pattern per fiscal quarter on the card, valuation percentile on the card, tax term per lot (needs purchase dates), open option contracts (needs a positions export with contracts), per position budgets, alert cards.
+* Built: a holdings table (symbol, shares, price paid, total paid, price now, worth now, gain or loss).
+* Not built yet: lead in pattern per fiscal quarter on the card, valuation percentile on the card, tax term per lot and open option contracts (both left out by choice: input is symbol, price paid and quantity only), per position budgets, alert cards.
 
 ## 7. Tax rules that shape protection choices
 
@@ -371,7 +373,6 @@ Yahoo lists the next report on 2027-02-15 (an estimate, no time).
 
 ## 9. Open questions for the user
 
-* Purchase dates per lot (tax term) and open option contracts (strike, expiry, contracts); the Position sheet has neither.
 * The giveback budget (share of peak profit, window); 25% over 63 sessions is a placeholder default.
 * Willingness to sell per holding (sets call coverage and strikes).
 * Whether to pay for any data: consensus history (expectations, revisions), option history (exact backtests), industry pricing (memory cycle). Each unlocks a specific part of the plan; none is needed for the MVP.
