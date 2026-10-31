@@ -4,3 +4,7 @@ reports/scan_*.csv
 .venv/
 __pycache__/
 .pytest_cache/
+reports/verify_*.csv
+data/user/holdings*.csv
+data/user/position*.csv
+reports/holdings_*.md

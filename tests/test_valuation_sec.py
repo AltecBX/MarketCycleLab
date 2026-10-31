@@ -101,10 +101,13 @@ def test_merge_earnings_mixed_datetime_units():
     y = pd.DataFrame({"date": pd.to_datetime(["2024-01-30", "2024-05-01", "2024-07-30"]).as_unit("ns"),
                       "timestamp": "x", "timing": "unknown", "eps_estimate": [1.0, 2.0, 3.0], "eps_actual": [1.1, 2.1, np.nan]})
     m = sec.merge_earnings(s, y)
-    assert len(m) == 3
-    assert m.loc[m["date"] == "2024-04-30", "eps_estimate"].iloc[0] == 2.0   # matched within 3 days
-    assert m.loc[m["date"] == "2024-04-30", "timing"].iloc[0] == "bmo"       # SEC timing kept
-    assert m["eps_actual"].isna().sum() == 1                                  # upcoming report kept
+    rep = m[m["kind"] == "report"]
+    assert len(rep) == 3
+    # a 2.02 filing a day off Yahoo's report date is a different event: Yahoo's date stands
+    assert m.loc[m["date"] == "2024-04-30", "kind"].iloc[0] == "other_2.02"
+    assert rep.loc[rep["date"] == "2024-05-01", "eps_estimate"].iloc[0] == 2.0
+    assert rep.loc[rep["date"] == "2024-01-30", "timing"].iloc[0] == "amc"   # SEC timing kept on an exact match
+    assert rep["eps_actual"].isna().sum() == 1                                # upcoming report kept
 
 
 def test_daily_multiples_mixed_units():

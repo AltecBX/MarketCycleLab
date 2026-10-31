@@ -16,6 +16,12 @@ SEC_USER_AGENT = os.environ.get("MCL_SEC_USER_AGENT", "")
 
 HISTORY_START = os.environ.get("MCL_START", "2005-01-01")
 
+# Fundamentals basis for valuation:
+#   first  each quarter as first reported, kept forever (default)
+#   asof   restated as of each filing date: a restatement counts from the day it was filed
+FUNDAMENTALS_BASIS = os.environ.get("MCL_FUNDAMENTALS", "first").strip().lower()
+BASES = ("first", "asof")
+
 DEFAULTS = {
     "swing_threshold": 0.10,     # zigzag reversal size for swings and selloffs
     "near_high": 0.03,           # a decline 'starts from a high' within 3% of the all-time high

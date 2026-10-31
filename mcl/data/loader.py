@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from ..config import USER_DIR
+from ..config import BASES, FUNDAMENTALS_BASIS, USER_DIR
 from . import macro, universe, yahoo
 
 
@@ -28,6 +28,7 @@ class Bundle:
     metric: str | None = None
     earnings: pd.DataFrame | None = None
     regimes: pd.DataFrame | None = None
+    basis: str = "first"
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -40,9 +41,13 @@ class Bundle:
 
     @property
     def past_earnings(self) -> pd.DataFrame | None:
+        """Quarterly reports up to the last bar; 8-K 2.02 filings that are not reports are left out."""
         if self.earnings is None or self.earnings.empty:
             return None
-        return self.earnings[pd.to_datetime(self.earnings["date"]) <= self.prices.index[-1]]
+        e = self.earnings[pd.to_datetime(self.earnings["date"]) <= self.prices.index[-1]]
+        if "kind" in e:
+            e = e[e["kind"].fillna("report") == "report"]
+        return e
 
 
 def user_prices(ticker: str) -> pd.DataFrame | None:
@@ -72,12 +77,16 @@ def get_prices(ticker: str) -> pd.DataFrame:
 
 
 def load(ticker: str, with_fundamentals: bool = True, with_regimes: bool = True,
-         market_ticker: str = "SPY") -> Bundle:
+         market_ticker: str = "SPY", basis: str | None = None) -> Bundle:
+    """basis: "first" (each quarter as first reported) or "asof" (restated as of each filing date)."""
     from ..analytics import valuation as val
     from ..analytics import regimes as rg
 
     tk = ticker.upper()
-    b = Bundle(tk, get_prices(tk))
+    basis = (basis or FUNDAMENTALS_BASIS).lower()
+    if basis not in BASES:
+        raise ValueError(f"basis must be one of {BASES}, got {basis!r}")
+    b = Bundle(tk, get_prices(tk), basis=basis)
     try:
         cons = macro.sp500_constituents()
     except Exception as e:
@@ -102,7 +111,11 @@ def load(ticker: str, with_fundamentals: bool = True, with_regimes: bool = True,
             from . import sec
             b.quarters = sec.fundamentals(tk)
             sp = yahoo.splits(tk, b.prices)
-            b.ttm = val.ttm(b.quarters, sp)
+            if basis == "asof":
+                b.ttm = val.ttm_asof(sec.fundamentals_asof(tk), sp)
+                b.notes.append("fundamentals: restated as of each filing date")
+            else:
+                b.ttm = val.ttm(b.quarters, sp)
             b.valuation = val.daily_multiples(b.prices["close"], b.ttm)
             b.metric = val.suggest_metric(b.info.get("sector"), b.ttm)
         except Exception as e:

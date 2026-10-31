@@ -78,6 +78,52 @@ def ttm(quarters: pd.DataFrame, splits: pd.Series | None = None) -> pd.DataFrame
     return out
 
 
+def ttm_asof(rows: pd.DataFrame, splits: pd.Series | None = None) -> pd.DataFrame:
+    """TTM table on the restated-as-of basis, same columns as `ttm`.
+
+    `rows` comes from sec_asof.fundamentals_asof: one row per knowledge date with
+    ttm_<flow>, ttm_<flow>_prev (prior-year TTM as known that day), balance sheet
+    and share count. Growth compares the two TTMs known on the same day, so a
+    restatement moves both sides together.
+    """
+    r = rows.copy()
+    r["knowledge_date"] = pd.to_datetime(r["knowledge_date"])
+    r["period_end"] = pd.to_datetime(r["period_end"])
+    r = r.sort_values(["knowledge_date", "period_end"], kind="mergesort").reset_index(drop=True)
+    out = pd.DataFrame({"period_end": r["period_end"], "available": r["knowledge_date"] + pd.Timedelta(days=1)})
+    for f in FLOWS:
+        if f"ttm_{f}" in r:
+            out[f"ttm_{f}"] = r[f"ttm_{f}"].astype(float)
+    for f in STOCKS:
+        if f in r:
+            out[f] = r[f].astype(float)
+    if "shares" in r:
+        sd = pd.to_datetime(r["shares_date"]).fillna(r["period_end"]) if "shares_date" in r else r["period_end"]
+        out["shares_adj"] = r["shares"].astype(float) * split_factor_after(sd, splits)
+    prev = {f: r[f"ttm_{f}_prev"].astype(float) for f in FLOWS if f"ttm_{f}_prev" in r}
+    if "ttm_ocf" in out and "ttm_capex" in out:
+        out["ttm_fcf"] = out["ttm_ocf"] - out["ttm_capex"].abs()
+    if "ttm_revenue" in out:
+        out["rev_growth_yoy"] = out["ttm_revenue"] / prev["revenue"].where(prev["revenue"] > 0) - 1.0
+        for f in ("net_income", "op_income", "fcf", "gross_profit"):
+            if f"ttm_{f}" in out:
+                out[f"{f}_margin"] = out[f"ttm_{f}"] / out["ttm_revenue"]
+        if "op_income_margin" in out and "op_income" in prev:
+            out["op_margin_change"] = out["op_income_margin"] - prev["op_income"] / prev["revenue"].where(prev["revenue"] > 0)
+        # acceleration: growth now minus growth two quarters earlier, as last known before this row
+        g, pe, av = out["rev_growth_yoy"].to_numpy(), out["period_end"].to_numpy(), out["available"].to_numpy()
+        accel = np.full(len(out), np.nan)
+        for i in range(len(out)):
+            lag = (pe[i] - pe[:i]).astype("timedelta64[D]").astype(float)
+            j = np.where((lag >= 150) & (lag <= 210) & (av[:i] <= av[i]))[0]
+            if len(j):
+                accel[i] = g[i] - g[j[-1]]
+        out["rev_growth_accel"] = accel
+    if "ttm_net_income" in out and "net_income" in prev:
+        out["ni_growth_yoy"] = out["ttm_net_income"] / prev["net_income"].where(prev["net_income"] > 0) - 1.0
+    return out
+
+
 def daily_multiples(close: pd.Series, t: pd.DataFrame) -> pd.DataFrame:
     """As-of join of TTM fundamentals onto trading days, then valuation multiples.
 
@@ -89,7 +135,10 @@ def daily_multiples(close: pd.Series, t: pd.DataFrame) -> pd.DataFrame:
     px["date"] = pd.to_datetime(px["date"]).astype("datetime64[ns]")
     f = t.dropna(subset=["available"]).copy()
     f["available"] = pd.to_datetime(f["available"]).astype("datetime64[ns]")
-    f = f.sort_values("available")
+    # On equal dates use the newest quarter; a row that becomes usable after a newer quarter's row
+    # (a late first filing) never replaces it.
+    f = f.sort_values(["available", "period_end"], kind="mergesort")
+    f = f[f["period_end"] >= f["period_end"].cummax()]
     j = pd.merge_asof(px.sort_values("date"), f, left_on="date", right_on="available", direction="backward")
     j = j.set_index("date")
     out = pd.DataFrame(index=j.index)
