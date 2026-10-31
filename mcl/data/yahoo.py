@@ -113,3 +113,42 @@ def many(tickers: list[str], start: str = HISTORY_START) -> dict[str, pd.DataFra
 
 def closes(frames: dict[str, pd.DataFrame], col: str = "adj_close") -> pd.DataFrame:
     return pd.DataFrame({t: f[col] if col in f else f["close"] for t, f in frames.items()}).sort_index()
+
+
+# Yahoo statement rows (lowercased, letters only) -> MarketCycleLab field, in order of preference
+STATEMENT_ROWS = {
+    "revenue": ["totalrevenue", "operatingrevenue"],
+    "net_income": ["netincome", "netincomecommonstockholders"],
+    "op_income": ["operatingincome"],
+    "ocf": ["operatingcashflow", "cashflowfromcontinuingoperatingactivities"],
+    "capex": ["capitalexpenditure"],
+}
+
+
+def quarterly_statements(ticker: str) -> pd.DataFrame:
+    """Yahoo's quarterly income and cash flow lines in long form: metric, period_end, value.
+
+    An independent source for checking the SEC reconstruction. Yahoo usually
+    carries only the last 5 to 8 quarters and shows restated values.
+    """
+    import re
+    t = _yf().Ticker(ticker)
+    frames = []
+    for attr in ("quarterly_income_stmt", "quarterly_cashflow"):
+        try:
+            f = getattr(t, attr)
+        except Exception:
+            f = None
+        if f is not None and not f.empty:
+            frames.append(f)
+    rows = []
+    for f in frames:
+        norm = {re.sub(r"[^a-z]", "", str(i).lower()): i for i in f.index}
+        for metric, keys in STATEMENT_ROWS.items():
+            key = next((k for k in keys if k in norm), None)
+            if key is None or any(r["metric"] == metric for r in rows):
+                continue
+            for col, v in f.loc[norm[key]].items():
+                if pd.notna(v):
+                    rows.append({"metric": metric, "period_end": pd.Timestamp(col).normalize(), "value": float(v)})
+    return pd.DataFrame(rows, columns=["metric", "period_end", "value"])

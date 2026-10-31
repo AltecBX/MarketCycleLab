@@ -38,6 +38,9 @@ def pretty(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     for c in out.columns:
         name = str(c).lower()
+        if out[c].dtype == object and out[c].map(type).nunique() > 1:
+            out[c] = out[c].map(lambda v: "" if v is None or (isinstance(v, float) and np.isnan(v)) else str(v))
+            continue  # mixed types (e.g. bucket 1, 2, 'ALL') cannot go to Arrow as is
         if not pd.api.types.is_numeric_dtype(out[c]) or pd.api.types.is_bool_dtype(out[c]):
             continue
         if name in COUNTS or name.startswith(("n_", "bars", "days")) or name.endswith(("bars", "_n")):

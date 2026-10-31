@@ -86,6 +86,8 @@ Covered by the five steps and grade above.
 ## Known limits
 * Yahoo prices are split adjusted; the `adj_close` column is also dividend adjusted. Valuation uses the split adjusted close with share counts converted to the same basis.
 * SEC XBRL starts around 2009 to 2011 for most companies, so valuation history is about 15 years at most. Banks and insurers report revenue differently; P/B is the default there.
+* Share counts come from the cover page of each 10-Q or 10-K, matched to the quarter by filing date so no later count leaks in. Multi class companies sometimes put only one class on the cover; `python -m mcl verify` flags those quarters against diluted weighted shares.
+* 8-K earnings releases are dated by SEC acceptance time, read as US Eastern. `python -m mcl verify` checks that reading against Yahoo's report times per company.
 * The free S&P 500 table lists current members only (survivorship). Sector and industry ETF studies avoid that.
 * Estimates history (revisions, guidance) is not free. The tool keeps those as optional columns.
 * Analogs and conditional tables describe the past. They do not forecast; they say how often something happened, with how much pain, in how many independent cases.

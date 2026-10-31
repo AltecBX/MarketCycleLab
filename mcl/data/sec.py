@@ -13,20 +13,20 @@ derived quarter is dated with the later filing.
 
 Earnings release dates: 8-K filings with Item 2.02 (Results of Operations).
 The acceptance time indicates before-open or after-close. The submissions
-feed labels that time with a 'Z' suffix, but it reads as US Eastern clock
-time in practice (for example an after-close 8-K shows 16:30); verify on one
-known report before relying on timing.
+feed labels that time with a 'Z' suffix but is treated here as US Eastern
+clock time (an after-close 8-K shows about 16:30). `python -m mcl verify`
+checks that assumption against Yahoo's report times for each ticker.
+The event is dated by acceptance, not filingDate: EDGAR gives anything
+accepted after 17:30 ET the next business day's filingDate.
 """
 from __future__ import annotations
 
 import json
-import time
-import urllib.request
 
 import numpy as np
 import pandas as pd
 
-from . import store
+from . import http, store
 from ..config import SEC_USER_AGENT
 
 TAGS = {
@@ -52,16 +52,8 @@ QUARTER_DAYS = (80, 100)
 def _get(url: str) -> dict:
     if not SEC_USER_AGENT:
         raise RuntimeError('Set MCL_SEC_USER_AGENT="Your Name your@email" (SEC requires a contact in the User-Agent).')
-    req = urllib.request.Request(url, headers={"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "identity"})
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return json.loads(r.read().decode("utf-8"))
-        except Exception:
-            if attempt == 3:
-                raise
-            time.sleep(2 ** attempt)
-    return {}
+    raw = http.get_bytes(url, {"User-Agent": SEC_USER_AGENT, "Accept-Encoding": "identity"}, timeout=30)
+    return json.loads(raw.decode("utf-8"))
 
 
 def ticker_to_cik(ticker: str) -> int | None:
@@ -102,28 +94,32 @@ def _facts(data: dict, tag: str, unit_pref=("USD", "shares", "USD/shares"), taxo
     return df.dropna(subset=["end", "filed", "val"])
 
 
-def discrete_quarters(df: pd.DataFrame) -> pd.DataFrame:
+def discrete_quarters(df: pd.DataFrame, keep: str = "first") -> pd.DataFrame:
     """Discrete ~90-day values from a mix of quarterly and cumulative duration facts.
 
-    Keeps the first filed value for each (start, end). Returns columns
-    period_end, val, filed, derived.
+    Keeps the first filed value for each (start, end); keep="last" uses the
+    latest filed (restated) value instead, which is only for verification.
+    Returns columns period_end, val, filed, derived.
     """
+    cols = ["period_end", "val", "filed", "derived", "accn"]
     if df.empty or "start" not in df:
-        return pd.DataFrame(columns=["period_end", "val", "filed", "derived"])
-    d = df.dropna(subset=["start"]).sort_values("filed").drop_duplicates(["start", "end"], keep="first").copy()
+        return pd.DataFrame(columns=cols)
+    d = df.dropna(subset=["start"]).sort_values("filed").drop_duplicates(["start", "end"], keep=keep).copy()
+    if "accn" not in d:
+        d["accn"] = ""
     d["days"] = (d["end"] - d["start"]).dt.days
     direct = d[d["days"].between(*QUARTER_DAYS)]
-    rows = {r.end: (r.val, r.filed, False) for r in direct.itertuples()}
+    rows = {r.end: (r.val, r.filed, False, r.accn) for r in direct.itertuples()}
     for start, g in d[d["days"] >= QUARTER_DAYS[0]].groupby("start"):
         g = g.sort_values("end")
-        ends, vals, filed = g["end"].tolist(), g["val"].tolist(), g["filed"].tolist()
+        ends, vals, filed, accn = g["end"].tolist(), g["val"].tolist(), g["filed"].tolist(), g["accn"].tolist()
         for a in range(len(g)):
             for b in range(a + 1, len(g)):
                 gap = (ends[b] - ends[a]).days
                 if QUARTER_DAYS[0] <= gap <= QUARTER_DAYS[1] and ends[b] not in rows:
-                    rows[ends[b]] = (vals[b] - vals[a], max(filed[a], filed[b]), True)
-    out = pd.DataFrame([(k, v[0], v[1], v[2]) for k, v in rows.items()],
-                       columns=["period_end", "val", "filed", "derived"]).sort_values("period_end")
+                    later = b if filed[b] >= filed[a] else a
+                    rows[ends[b]] = (vals[b] - vals[a], max(filed[a], filed[b]), True, accn[later])
+    out = pd.DataFrame([(k, *v) for k, v in rows.items()], columns=cols).sort_values("period_end")
     return out.reset_index(drop=True)
 
 
@@ -154,6 +150,8 @@ def _shares(data: dict) -> pd.DataFrame:
         d = dei.sort_values("filed").drop_duplicates(["accn"], keep="first") if "accn" in dei else dei
         return pd.DataFrame({"shares_date": d["end"], "shares": d["val"], "shares_filed": d["filed"]})
     w = discrete_quarters(_facts(data, "WeightedAverageNumberOfDilutedSharesOutstanding", ("shares",)))
+    # averages are not additive: FY minus 9M of an average is meaningless, keep reported quarters only
+    w = w[~w["derived"].astype(bool)] if not w.empty else w
     if w.empty:
         return pd.DataFrame(columns=["shares_date", "shares", "shares_filed"])
     return pd.DataFrame({"shares_date": w["period_end"], "shares": w["val"], "shares_filed": w["filed"]})
@@ -190,21 +188,17 @@ def quarterly_fundamentals(data: dict) -> pd.DataFrame:
     q["lt_debt"] = lt_split.fillna(q["period_end"].map(tot))
     q["total_debt"] = q["lt_debt"].fillna(0.0) + (q["st_debt"].fillna(0.0) if "st_debt" in q else 0.0)
     q.loc[q["lt_debt"].isna() & (q["st_debt"].isna() if "st_debt" in q else True), "total_debt"] = np.nan
-    sh = _shares(data).sort_values("shares_date")
-    if not sh.empty:
-        # share count from the cover page of the filing for that quarter, else the nearest one
-        sh = sh.dropna(subset=["shares_date"])
-        sh["shares_date"] = pd.to_datetime(sh["shares_date"]).astype("datetime64[ns]")
-        q["period_end"] = pd.to_datetime(q["period_end"]).astype("datetime64[ns]")
-        j = pd.merge_asof(q.sort_values("period_end"), sh, left_on="period_end", right_on="shares_date",
-                          direction="forward", tolerance=pd.Timedelta(days=120))
-        q = j
-        miss = q["shares"].isna()
-        if miss.any():
-            j2 = pd.merge_asof(q.loc[miss, ["period_end"]].sort_values("period_end"), sh, left_on="period_end",
-                               right_on="shares_date", direction="backward")
-            q.loc[miss, ["shares_date", "shares"]] = j2[["shares_date", "shares"]].to_numpy()
     q = q.dropna(subset=["filed"])
+    sh = _shares(data)
+    if not sh.empty:
+        # point in time: the latest share count filed on or before the quarter's own filing date,
+        # normally the cover page of that same 10-Q or 10-K, never a later filing
+        sh = sh.dropna(subset=["shares_date", "shares_filed"]).copy()
+        for c in ("shares_date", "shares_filed"):
+            sh[c] = pd.to_datetime(sh[c]).astype("datetime64[ns]")
+        sh = sh.sort_values(["shares_filed", "shares_date"])
+        q["filed"] = pd.to_datetime(q["filed"]).astype("datetime64[ns]")
+        q = pd.merge_asof(q.sort_values("filed"), sh, left_on="filed", right_on="shares_filed", direction="backward")
     return q.sort_values("period_end").reset_index(drop=True)
 
 
@@ -247,7 +241,9 @@ def earnings_releases(ticker: str, refresh_hours: float = 24.0) -> pd.DataFrame:
                 continue
             acc = str(b.get("acceptanceDateTime", [""] * n)[i]).replace("Z", "").replace(".000", "")
             ts = pd.Timestamp(acc) if acc else pd.Timestamp(b["filingDate"][i])
-            rows.append({"date": pd.Timestamp(b["filingDate"][i]), "accepted": str(ts),
+            # EDGAR gives anything accepted after 17:30 ET the next business day's filingDate.
+            # The release went out on the acceptance day, so date the event by acceptance.
+            rows.append({"date": ts.normalize(), "filing_date": pd.Timestamp(b["filingDate"][i]), "accepted": str(ts),
                          "timing": classify_timing(ts) if acc else "unknown"})
     out = pd.DataFrame(rows).drop_duplicates("date").sort_values("date").reset_index(drop=True) if rows else \
         pd.DataFrame(columns=["date", "accepted", "timing"])

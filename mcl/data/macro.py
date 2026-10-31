@@ -11,11 +11,10 @@ Sources, in order of preference
 from __future__ import annotations
 
 import io
-import urllib.request
 
 import pandas as pd
 
-from . import store
+from . import http, store
 
 DATAHUB = "https://raw.githubusercontent.com/datasets"
 URLS = {
@@ -28,9 +27,7 @@ URLS = {
 
 
 def _csv(url: str) -> pd.DataFrame:
-    req = urllib.request.Request(url, headers={"User-Agent": "MarketCycleLab"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return pd.read_csv(io.BytesIO(r.read()))
+    return pd.read_csv(io.BytesIO(http.get_bytes(url, {"User-Agent": "MarketCycleLab"}, timeout=60, retries=2)))
 
 
 def _cached_csv(name: str, hours: float = 24.0) -> pd.DataFrame:

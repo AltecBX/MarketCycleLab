@@ -4,6 +4,9 @@
   study TICKER [--threshold 0.10] [--out reports/TICKER.html]   run every study, write an HTML report
   scan [TICKER ...]           watchlist phase and alerts (default: data/user/watchlist.json)
   market                      long-run S&P 500 study (Shiller, VIX, 10y), writes reports/market_study.md
+  verify [TICKER ...]         check SEC quarterly fundamentals against the 10-K totals and Yahoo,
+                              writes reports/verify_<TICKER>.csv (default: stocks in the watchlist)
+  doctor [--offline]          preflight: Python, packages, SEC contact header, and each data source
   demo                        HTML report on synthetic data (no network)
 """
 from __future__ import annotations
@@ -30,6 +33,11 @@ def main(argv=None) -> int:
     sc.add_argument("--threshold", type=float, default=0.10)
     m = sub.add_parser("market")
     m.add_argument("--since", default="1950-01-01")
+    v = sub.add_parser("verify")
+    v.add_argument("tickers", nargs="*")
+    v.add_argument("--no-yahoo", action="store_true", help="SEC-only checks")
+    d = sub.add_parser("doctor")
+    d.add_argument("--offline", action="store_true", help="skip the network probes")
     sub.add_parser("demo")
     a = ap.parse_args(argv)
 
@@ -84,6 +92,36 @@ def main(argv=None) -> int:
             if k in out and isinstance(out[k], pd.DataFrame):
                 out[k].to_csv(REPORTS_DIR / f"market_{k}.csv", index=False)
         print(f"wrote {p}")
+    elif a.cmd == "verify":
+        from . import verify
+        from .data import universe
+        tks = [t.upper() for t in a.tickers] or [t for t in universe.load_watchlist()
+                                                  if universe.classify(t)["source"] != "proxy"]
+        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        summaries = []
+        for t in tks:
+            try:
+                res = verify.run(t, use_yahoo=not a.no_yahoo)
+            except Exception as e:
+                print(f"{t}: skipped ({e})\n")
+                continue
+            res["rows"].to_csv(REPORTS_DIR / f"verify_{t}.csv", index=False)
+            summaries.append(res["summary"])
+            print(verify.text(res))
+            print(f"  details: {REPORTS_DIR / f'verify_{t}.csv'}\n")
+        if summaries:
+            allsum = pd.concat(summaries, ignore_index=True)
+            allsum.to_csv(REPORTS_DIR / "verify_summary.csv", index=False)
+            fails = allsum[allsum["status"] == "fail"]
+            print(f"summary: {REPORTS_DIR / 'verify_summary.csv'}; "
+                  f"{len(fails)} check(s) with a FAIL across {allsum['ticker'].nunique()} ticker(s)")
+            return 1 if len(fails) else 0
+        return 1
+    elif a.cmd == "doctor":
+        from . import doctor
+        rows = doctor.checks(network=not a.offline)
+        print(doctor.text(rows))
+        return 1 if any(r["status"] == "fail" for r in rows) else 0
     return 0
 
 
