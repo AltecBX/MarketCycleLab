@@ -318,3 +318,13 @@ def test_vs_yahoo_gap_explained_by_unusual_items():
     assert r["status"] == "warn" and "unusual items (4,393M)" in r["note"]
     y.loc[1, "value"] = 1000 * M
     assert _by(verify.vs_yahoo(data, y), "yahoo", "revenue").iloc[0]["status"] == "fail"
+
+
+def test_vs_yahoo_gap_explained_by_other_income():
+    # XOM Q2 2026 ($M): Revenues (total revenues and other income) 116,017; Yahoo sales 114,529; Yahoo other income 1,456
+    M = 1e6
+    data = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [F("2026-04-01", "2026-06-30", 116017 * M, "2026-08-03")]}}}}}
+    y = pd.DataFrame({"metric": ["revenue", "other_income"], "period_end": pd.to_datetime(["2026-06-30"] * 2),
+                      "value": [114529 * M, 1456 * M]})
+    r = _by(verify.vs_yahoo(data, y), "yahoo", "revenue").iloc[0]
+    assert r["status"] == "warn" and "other income (1,456M)" in r["note"]

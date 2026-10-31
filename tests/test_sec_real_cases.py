@@ -145,3 +145,40 @@ def test_successor_cik_merges_predecessor_history(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "USER_DIR", tmp_path)
     (tmp_path / "cik_predecessors.json").write_text(json.dumps({"ABC": [111]}))
     assert sec.predecessors("ABC", 999) == [111] and sec.predecessors("XOM", 2115436) == [34088]
+
+
+def test_tag_switch_keeps_first_reported_value():
+    # MSFT Q1 FY2017 revenue: 20,453 under SalesRevenueNet (Oct 2016); the Aug 2018 10-K re-tagged the quarter
+    # under RevenueFromContractWithCustomerExcludingAssessedTax at the ASC 606 restated 21,928.
+    data = {"facts": {"us-gaap": {
+        "SalesRevenueNet": {"units": {"USD": [F("2016-07-01", "2016-09-30", 20453, "2016-10-20", "10-Q", "q1")]}},
+        "RevenueFromContractWithCustomerExcludingAssessedTax": {"units": {"USD": [
+            F("2016-07-02", "2016-09-30", 21928, "2018-08-03", "10-K", "k18")]}}}}}
+    first = sec._first_available(data, sec.TAGS["revenue"], sec.discrete_quarters).iloc[0]
+    assert first["val"] == 20453 * M and first["filed"] == pd.Timestamp("2016-10-20") and first["tag"] == "SalesRevenueNet"
+    q = sec.quarterly_fundamentals(data)
+    assert q["filed"].iloc[0] == pd.Timestamp("2016-10-20")
+    from functools import partial
+    last = sec._first_available(data, sec.TAGS["revenue"], partial(sec.discrete_quarters, keep="last"), keep="last")
+    assert last["val"].iloc[0] == 21928 * M
+
+
+def test_tag_rank_breaks_ties_within_a_filing():
+    # AMZN Q1 2012 10-Q tags total net sales and product sales; the total ranks higher
+    data = {"facts": {"us-gaap": {
+        "SalesRevenueNet": {"units": {"USD": [F("2012-01-01", "2012-03-31", 13185, "2012-04-27", "10-Q", "a")]}},
+        "SalesRevenueGoodsNet": {"units": {"USD": [F("2012-01-01", "2012-03-31", 11249, "2012-04-27", "10-Q", "a")]}}}}}
+    assert sec._first_available(data, sec.TAGS["revenue"], sec.discrete_quarters)["val"].iloc[0] == 13185 * M
+
+
+def test_market_hours_8k_takes_yahoo_timing():
+    # XOM releases about 07:00 ET and files the 8-K about 09:40; MSFT 2011-01-27 8-K at 15:57, release after the close
+    s = pd.DataFrame({"date": pd.to_datetime(["2013-10-31", "2011-01-27", "2024-07-12"]),
+                      "accepted": ["2013-10-31 09:48:30", "2011-01-27 15:57:59", "2024-07-12 06:46:30"],
+                      "timing": ["dmh", "dmh", "bmo"]})
+    y = pd.DataFrame({"date": pd.to_datetime(["2013-10-31", "2011-01-27", "2024-07-12"]), "timestamp": "t",
+                      "timing": ["bmo", "amc", "amc"], "eps_estimate": 1.0, "eps_actual": 1.0})
+    m = sec.merge_earnings(s, y).set_index("date")
+    assert m.loc["2013-10-31", "timing"] == "bmo" and m.loc["2013-10-31", "timing_sec"] == "dmh"
+    assert m.loc["2011-01-27", "timing"] == "amc"
+    assert m.loc["2024-07-12", "timing"] == "bmo"          # a definite SEC call is never overridden

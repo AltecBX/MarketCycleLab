@@ -109,7 +109,7 @@ The spot check at the end of each ticker lists the last four quarters of revenue
 |---|---|---|
 | Daily OHLCV, splits, dividends | Yahoo via yfinance | `close` split adjusted; `adj_close` also dividend adjusted |
 | Quarterly fundamentals | SEC EDGAR XBRL company facts | first filed value per period, usable the day after filing |
-| Earnings dates and timing | SEC 8-K Item 2.02 acceptance time | joined to Yahoo EPS estimate and actual |
+| Earnings dates and timing | SEC 8-K Item 2.02 acceptance time (UTC, converted to Eastern) | joined to Yahoo EPS estimate and actual; Yahoo's date and timing win where the 8-K is a different event or was accepted during market hours |
 | VIX | Yahoo `^VIX`, fallback CBOE file mirror | |
 | 10 year yield | FRED DGS10, fallback Yahoo `^TNX`, fallback monthly mirror | |
 | Long run S&P 500, CAPE | Shiller data (datahub mirror) | monthly averages; earnings and CAPE end 2023 in the mirror |

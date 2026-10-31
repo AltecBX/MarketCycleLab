@@ -206,18 +206,32 @@ def instants(df: pd.DataFrame) -> pd.DataFrame:
     return d.rename(columns={"end": "period_end"})[["period_end", "val", "filed"]].sort_values("period_end")
 
 
-def _first_available(data: dict, tags: list[str], fn) -> pd.DataFrame:
-    """Merge tags by period: for each period, the highest-priority tag that has it."""
-    merged = None
-    for tag in tags:
+def _first_available(data: dict, tags: list[str], fn, keep: str = "first") -> pd.DataFrame:
+    """Merge a field's tags by period.
+
+    keep="first": for each period the earliest filed value across tags; tag order only breaks ties
+    within one filing. When a company switches tags (most did in 2018 for ASC 606), its new filings
+    re-tag two prior years of quarters with restated values; ranking by tag would let those 2018
+    values replace what was first reported (MSFT Q1 FY2017 revenue: 20,453M filed Oct 2016 became
+    21,928M filed Aug 2018) and hold every multiple for those years back until 2018.
+    keep="last" (verification): latest reported value, derived only when none was reported.
+    """
+    parts = []
+    for rank, tag in enumerate(tags):
         part = fn(_facts(data, tag))
-        if part.empty:
-            continue
-        part = part.assign(tag=tag)
-        merged = part if merged is None else pd.concat([merged, part[~part["period_end"].isin(merged["period_end"])]])
-    if merged is None:
+        if not part.empty:
+            parts.append(part.assign(tag=tag, rank=rank))
+    if not parts:
         return pd.DataFrame(columns=["period_end", "val", "filed", "tag"])
-    return merged.sort_values("period_end").reset_index(drop=True)
+    m = pd.concat(parts, ignore_index=True)
+    if "derived" not in m:
+        m["derived"] = False
+    m["derived"] = m["derived"].astype(bool)
+    if keep == "first":
+        m = m.sort_values(["period_end", "filed", "derived", "rank"], kind="mergesort")
+    else:
+        m = m.sort_values(["period_end", "derived", "filed", "rank"], ascending=[True, True, False, True], kind="mergesort")
+    return m.drop_duplicates("period_end").drop(columns="rank").reset_index(drop=True)
 
 
 def _shares(data: dict) -> pd.DataFrame:
@@ -278,7 +292,7 @@ def quarterly_fundamentals(data: dict) -> pd.DataFrame:
     return q.sort_values("period_end").reset_index(drop=True)
 
 
-FUNDAMENTALS_CACHE = "fundamentals_v2"   # v2: first-known quarter selection, quarterly-table check, predecessors
+FUNDAMENTALS_CACHE = "fundamentals_v3"   # v3: earliest filed across tags; first-known quarters; predecessors
 
 
 def fundamentals(ticker: str) -> pd.DataFrame:
@@ -357,22 +371,34 @@ def merge_earnings(sec_dates: pd.DataFrame, yahoo: pd.DataFrame, tolerance_days:
     y["date"] = pd.to_datetime(y["date"]).astype("datetime64[ns]")
     y = y.sort_values("date")
     y["y_date"] = y["date"]
-    j = pd.merge_asof(s, y.drop(columns=["timing"], errors="ignore"), on="date", direction="nearest",
-                      tolerance=pd.Timedelta(days=tolerance_days))
+    y = y.rename(columns={"timing": "timing_yahoo"}) if "timing" in y else y
+    j = pd.merge_asof(s, y, on="date", direction="nearest", tolerance=pd.Timedelta(days=tolerance_days))
     # Item 2.02 also covers pre-announcements, guidance cuts and conference updates. Where Yahoo covers the
     # period (a report within 60 days) and none is within tolerance, the filing is not a quarterly report.
     # Two filings matching one Yahoo report: the closer one is the report.
     j["kind"] = "report"
+    # A 2.02 filing 1 to 3 days from Yahoo's report date is a different event (AAPL 2005-01-11 Macworld vs the
+    # 2005-01-12 report): the Yahoo row stands as the report.
+    off_date = j["y_date"].notna() & (j["date"] != j["y_date"])
+    j.loc[off_date, "kind"] = "other_2.02"
     dist = (j["date"] - j["y_date"]).abs()
-    dup = j["y_date"].notna() & j.duplicated("y_date", keep=False)
+    dup = j["y_date"].notna() & (j["kind"] == "report") & j.duplicated("y_date", keep=False) & ~off_date
     if dup.any():
         best = dist[dup].groupby(j.loc[dup, "y_date"]).idxmin()
         j.loc[dup & ~j.index.isin(best.to_numpy()), "kind"] = "other_2.02"
-        yahoo_cols = [c for c in y.columns if c not in ("date", "y_date", "timing")]   # timing here is SEC's
-        j.loc[j["kind"] == "other_2.02", yahoo_cols] = np.nan
+    yahoo_cols = [c for c in y.columns if c not in ("date", "y_date")]
+    j.loc[j["kind"] == "other_2.02", yahoo_cols] = np.nan
+    # SEC acceptance bounds the release time from above: an 8-K accepted during market hours often follows a
+    # pre-market press release (XOM: release ~07:00, 8-K ~09:40) or lands just before an after-close release.
+    if "timing_yahoo" in j:
+        fix = (j["kind"] == "report") & (j["timing"] == "dmh") & j["timing_yahoo"].isin(["bmo", "amc"])
+        j["timing_sec"] = j["timing"]
+        j.loc[fix, "timing"] = j.loc[fix, "timing_yahoo"]
     nomatch = j["y_date"].isna()
     covered = [bool(((y["date"] - d).abs() <= pd.Timedelta(days=60)).any()) for d in j.loc[nomatch, "date"]]
     j.loc[nomatch, "kind"] = np.where(covered, "other_2.02", "report")
     extra = y[~y["y_date"].isin(j.loc[j["kind"] == "report", "y_date"].dropna())].assign(kind="report")
+    if "timing_yahoo" in extra:
+        extra = extra.assign(timing=extra["timing_yahoo"])
     out = pd.concat([j, extra], ignore_index=True).sort_values("date").reset_index(drop=True)
-    return out.drop(columns=["y_date"], errors="ignore")
+    return out.drop(columns=["y_date", "timing_yahoo"], errors="ignore")

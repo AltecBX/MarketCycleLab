@@ -68,7 +68,7 @@ def _row(check, metric, period_end=None, sec_value=np.nan, sec_latest=np.nan, co
 
 def flow(data: dict, key: str, keep: str = "first") -> pd.DataFrame:
     """Discrete quarters for one field, same tag priority as the pipeline."""
-    return sec._first_available(data, sec.TAGS[key], partial(sec.discrete_quarters, keep=keep))
+    return sec._first_available(data, sec.TAGS[key], partial(sec.discrete_quarters, keep=keep), keep=keep)
 
 
 def _annual_facts(data: dict, key: str) -> pd.DataFrame:
@@ -167,6 +167,8 @@ def vs_yahoo(data: dict, ystm: pd.DataFrame, cik=None) -> list[dict]:
         return out
     un = ystm[ystm["metric"] == "unusual"]
     unusual = dict(zip(un["period_end"], un["value"]))
+    oi = ystm[ystm["metric"] == "other_income"]
+    other = dict(zip(oi["period_end"], oi["value"]))
     for key in FLOWS:
         ys = ystm[ystm["metric"] == key]
         if ys.empty:
@@ -176,8 +178,8 @@ def vs_yahoo(data: dict, ystm: pd.DataFrame, cik=None) -> list[dict]:
         for r in ys.sort_values("period_end").itertuples():
             yv = abs(r.value) if key == "capex" else r.value
             if a.empty:
-                out.append(_row("yahoo", key, r.period_end, compare_to="Yahoo", compare_value=yv, status="warn",
-                                note="no SEC quarters for this field"))
+                out.append(_row("yahoo", key, r.period_end, compare_to="Yahoo", compare_value=yv, status="info",
+                                note="the company does not report this line in XBRL"))
                 continue
             d = (a["period_end"] - r.period_end).abs()
             i = d.idxmin()
@@ -193,6 +195,11 @@ def vs_yahoo(data: dict, ystm: pd.DataFrame, cik=None) -> list[dict]:
                 status, note = "ok", ""
             elif _close(last, yv):
                 status, note = "info", "matches the latest filed value; first filed value was later restated"
+            elif key == "revenue" and np.isfinite(other.get(r.period_end, np.nan)) and \
+                    abs((first - yv) - other[r.period_end]) <= 0.1 * abs(other[r.period_end]):
+                status = "warn"
+                note = (f"gap matches Yahoo's other income ({other[r.period_end] / 1e6:,.0f}M): the SEC tag is total "
+                        f"revenues and other income (equity affiliates, other income); Yahoo shows sales only")
             elif key == "revenue" and np.isfinite(unusual.get(r.period_end, np.nan)) and \
                     abs((first - yv) - unusual[r.period_end]) <= 0.1 * abs(unusual[r.period_end]):
                 status = "warn"
