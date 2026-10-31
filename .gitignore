@@ -5,6 +5,8 @@ reports/scan_*.csv
 __pycache__/
 .pytest_cache/
 reports/verify_*.csv
-data/user/holdings*
-data/user/position*
+# personal files: everything in data/user/ except the tracked examples (the repository is public)
+data/user/*
+!data/user/peers.example.json
+!data/user/watchlist.json
 reports/holdings_*
