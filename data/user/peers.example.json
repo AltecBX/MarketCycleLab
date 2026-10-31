@@ -1,0 +1,4 @@
+{
+  "NVDA": {"peers": ["AMD", "AVGO", "QCOM", "MRVL", "INTC", "MU", "TXN", "ADI"], "industry_etf": "SMH"},
+  "CRM": {"peers": ["NOW", "ORCL", "ADBE", "WDAY", "INTU", "SAP"], "industry_etf": "IGV"}
+}

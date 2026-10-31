@@ -1,0 +1,6 @@
+data/cache/
+reports/*.html
+reports/scan_*.csv
+.venv/
+__pycache__/
+.pytest_cache/
