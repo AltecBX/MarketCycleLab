@@ -69,7 +69,7 @@ Questions: P1.1 (what was expected), P1.2 (when good news stops being rewarded),
 * **Report alignment.** Reaction day t0 from 8-K acceptance time (before the open: same day; after the close: next session; during market hours: Yahoo's call). Report interval = sessions between consecutive reports. Fiscal quarter label from the company's fiscal year end (AAPL: September; SNDK: June/July).
 * **Lead in (P2.1).** For the final 60, 40, 20, 10, 5 and 1 sessions before t0: total return, maximum rally (high close over the window start), maximum decline, and the session (relative to t0) of the highest and lowest close. A rally followed by a selloff inside the window is kept even when the net is small.
 * **When buying or selling starts (P2.2).** Aligned paths by fiscal quarter across years: share of reports whose lead in high came 20 or more sessions early, 6 to 19 sessions early, or in the final 5 sessions; same for lows. Shown per year next to the median path, with n and the 25 to 75 percentile band.
-* **Surprise versus usual (P1.1).** surprise = (actual − estimate) / |estimate|; surprise_vs_usual = (surprise − median of the prior 8 surprises) / MAD of the prior 8, using only reports before this one. "Smaller beat than usual" = surprise > 0 and surprise_vs_usual below −1. Revenue surprise and guidance versus consensus join when the data exists (below).
+* **Surprise versus usual (P1.1).** surprise = (actual − estimate) / |estimate|; surprise_vs_usual = (surprise − median of the prior 8 surprises) / MAD of the prior 8, using only reports before this one. "Smaller beat than usual" = surprise > 0 and surprise_vs_usual below −1. Because a percentage surprise explodes when the estimate is near zero (SNDK, August 2025: +867%), the same measures are also computed on surprise in price terms, (actual − estimate) / share price before the report. Revenue surprise and guidance versus consensus join when the data exists (below).
 * **Four lead in combinations (P2.3).** Rally into the report (lead in return above its own historical median) or decline, crossed with continued gain or reversal over t0 to t0+1, t0+5 and t0+20; split by result (beat, inline, miss), guidance (raised, held, cut, when known), valuation percentile and market regime. Reported as ASSOCIATION with n per cell; a cell with fewer than 10 independent reports is shown but marked insufficient.
 * **Reaction quality (P1.2).** Flags per report: sold good news (beat or raised guidance, and t0 return below the sector ETF's by more than one typical daily move); failed gap (open above the prior close by more than 1%, close below the open); absorbed bad news (miss or cut guidance, t0 excess return above zero). Then 1, 5 and 20 session excess returns versus industry ETF, sector ETF and SPY. Test: does a run of "sold good news" in the last 4 reports change the next 60 session distribution versus the stock's base rate (M12 decides if it is more than an ASSOCIATION).
 
@@ -237,7 +237,132 @@ Statutory text retrieved from the U.S. Code (links below). Treasury Regulations 
 
 ## 8. Case studies: AAPL and SNDK
 
-Pending: verified figures from `python scripts/case_study_facts.py AAPL SNDK` are being collected and will replace this line.
+**Source of every number here:** `python scripts/case_study_facts.py AAPL SNDK` plus a follow up query, run 2026-10-31 on commit 18480df with data through the 2026-10-30 close: Yahoo daily bars (split adjusted closes), SEC EDGAR company facts and submissions, SEC 8-K Item 2.02 acceptance times. Rerun the script to reproduce or update. Returns are close to close; "t0" is the first session that could react (next session for an after close report).
+
+### 8.1 AAPL: verified facts
+
+* **History used:** 2005-01-03 to 2026-10-30, 5,492 sessions. Last close $344.63; 252 session closing high $348.91; 1.2% below it.
+* **Splits (Yahoo):** 2 for 1 on 2005-02-28, 7 for 1 on 2014-06-09, 4 for 1 on 2020-08-31.
+* **Fiscal year (SEC):** CIK 320193, fiscal year end listed as 09/26 (52/53 week year ending late September). Fiscal Q1 = October to December.
+
+**Last 8 fiscal quarters, as first reported ($M; EPS diluted)**
+
+| Quarter end | Fiscal | Revenue | Net income | EPS | Quarter source | Filed |
+|---|---|---|---|---|---|---|
+| 2024-09-28 | FY2024 Q4 | 94,930 | 14,736 | (not reported for Q4 alone) | FY minus 9M | 2024-11-01 |
+| 2024-12-28 | FY2025 Q1 | 124,300 | 36,330 | 2.40 | 10-Q | 2025-01-31 |
+| 2025-03-29 | FY2025 Q2 | 95,359 | 24,780 | 1.65 | 10-Q | 2025-05-02 |
+| 2025-06-28 | FY2025 Q3 | 94,036 | 23,434 | 1.57 | 10-Q | 2025-08-01 |
+| 2025-09-27 | FY2025 Q4 | 102,466 | 27,466 | (not reported for Q4 alone) | FY minus 9M | 2025-10-31 |
+| 2025-12-27 | FY2026 Q1 | 143,756 | 42,097 | 2.84 | 10-Q | 2026-01-30 |
+| 2026-03-28 | FY2026 Q2 | 111,184 | 29,578 | 2.01 | 10-Q | 2026-05-01 |
+| 2026-06-27 | FY2026 Q3 | 109,417 | 29,789 | 2.02 | 10-Q | 2026-07-31 |
+
+**Earnings releases.** All 12 releases from 2023-11-02 to 2026-07-30 were 8-Ks accepted between 16:30:21 and 16:30:41 ET (after the close). Yahoo EPS surprise on those 12: 1.3% to 9.8%; median over all 87 past reports 4.5%, last 8 reports 4.1%. Yahoo lists the next report on 2026-11-02 with no time; this date is not confirmed by an Apple announcement in this data.
+
+**Market cap milestones** (closing price × latest cover page share count filed on or before that day; split adjusted)
+
+| Level | First intraday | First close | Close (unadjusted) × shares | Separate close crossings | After the first close: 5 / 20 / 60 / 120 sessions | Worst close within 120 sessions of the first intraday crossing |
+|---|---|---|---|---|---|---|
+| $1T | 2018-08-02 | 2018-08-02 | $207.39 × 4,829.9M (as of 2018-07-20) | 6 | +0.7% / +8.5% / +4.3% / −23.9% | −31.4% (2019-01-03) |
+| $2T | 2020-08-19 | 2020-08-20 | $473.10 × 4,275.6M (as of 2020-07-17) | 10 | +5.7% / −9.7% / +0.8% / +14.3% | −7.7% (2020-09-18) |
+| $3T | 2022-01-03 | 2023-06-30 | $193.97 × 15,728.7M (as of 2023-04-21) | 15 | −2.8% / +1.3% / −11.3% / +0.4% | −28.5% (2022-06-16); no close above the 2022-01-03 close until 2023-06-12 |
+| $4T | 2025-10-28 | 2025-10-29 | $269.70 × 14,840.4M (as of 2025-07-18) | 8 | +0.2% / +2.9% / −4.2% / +1.4% | −8.3% (2026-03-30) |
+
+What this does and does not show: the dates are VERIFIED. Two of four first crossings ($1T in 2018, $3T intraday in 2022) were followed by declines near 30% within 120 sessions; the other two by declines under 10%. Four events, with many repeated crossings around each level, are not a sample: whether a milestone says more than "a large rally to a new high at a high valuation" needs the matched control rallies in M6 (not yet run).
+
+### 8.2 AAPL: first associations (in sample, not validated)
+
+**Moving averages** (as of 2026-10-30; past streaks counted once each)
+
+| Average | Now | Streak | Completed same side streaks: median / 90th pct / max | Share that reached today's length | Next 5 sessions after past streaks that reached it: median return (all same side days) / streak ended / drop larger than a typical move | n |
+|---|---|---|---|---|---|---|
+| 5 day | below, −0.3% | 1 | 3 / 7 / 20 | all | +0.3% (+0.6%) / 79% / 23% | 668 |
+| 20 day | above, +0.7% | 21 | 6 / 35 / 85 | 22% | +1.5% (+0.9%) / 19% / 14% | 58 |
+| 50 day | above, +3.5% | 37 | 6 / 59 / 187 | 18% | +0.9% (+0.8%) / 16% / 19% | 31 |
+| 200 day | above, +16.2% | 149 | 20 / 273 / 551 | 29% | +1.6% (+0.8%) / 8% / 0% | 12 |
+
+Reading: in AAPL's 2005 to 2026 history, streaks above the 20, 50 and 200 day averages that had already lasted as long as today's were not followed by weaker 5 session returns than the average day above. At 3 and 10 sessions the 50 day case was slightly weaker than its baseline (median −0.0% versus +0.4%; +1.2% versus +1.4%; n = 31); the 20 and 200 day cases were not. The streak alone did not clearly mark higher pullback risk at these horizons. Missing before this can be used: the "drop larger than a typical move" baseline for all same side days, the extension and earnings conditions (M5), and the out of sample test (M12).
+
+**Earnings lead in versus reaction** (87 reports, 2005-01-12 to 2026-07-30)
+
+| 20 session run up into the report (tercile) | n | Median run up | Median reaction (t0) | Share with a negative t0 | Median next 20 sessions |
+|---|---|---|---|---|---|
+| low | 29 | −4.7% | −0.7% | 55% | +3.2% |
+| mid | 28 | +2.5% | +2.5% | 39% | +3.7% |
+| high | 29 | +10.3% | +2.4% | 41% | +1.1% |
+
+* Four combinations: rallied in and kept rising 33, rallied in then fell 23, fell in and kept falling 16, fell in then recovered 14 (1 unclassified).
+* 62 reports beat by more than 2%; 25 of those (40%) still fell on t0.
+* By fiscal quarter reported (73 reports since SEC data begins in 2008, about 18 each): the September quarter (fiscal Q4, reported late October or early November) has the only negative median reaction, −0.7%, against +0.9% to +2.8% for the others.
+* Reading: for AAPL, a large run up was not followed by more frequent t0 declines than a moderate one (41% versus 39%); weak run ups were followed by declines more often (55%). With 28 to 29 reports per group the 95% intervals overlap, so neither direction is established.
+
+**Smaller than usual beats, last 8 reports** (surprise compared with the median of the prior 8)
+
+| Report | Surprise | Versus prior 8 median | Run up (20 sessions) | t0 | t0 versus SPY | Next 20 sessions |
+|---|---|---|---|---|---|---|
+| 2024-10-31 | 2.1% | −2.0 pts | +0.1% | −1.3% | −1.8% | +7.5% |
+| 2025-01-30 | 2.1% | −2.0 pts | −5.8% | −0.7% | −0.1% | +0.9% |
+| 2025-05-01 | 1.9% | −2.3 pts | −4.7% | −3.7% | −5.2% | −1.8% |
+| 2025-07-31 | 9.8% | +6.8 pts | −2.3% | −2.5% | −0.9% | +14.7% |
+| 2025-10-30 | 4.5% | +1.6 pts | +5.6% | −0.4% | −0.7% | +4.7% |
+| 2026-01-29 | 6.4% | +3.4 pts | −5.4% | +0.5% | +0.8% | +2.0% |
+| 2026-04-30 | 3.6% | +0.3 pts | +6.2% | +3.2% | +3.0% | +9.3% |
+| 2026-07-30 | 6.9% | +2.8 pts | +13.3% | −7.4% | −8.1% | +3.5% |
+
+Eight reports are anecdotes, not evidence: the three smaller than usual beats all fell on t0, but so did three of the five larger than usual beats, including the largest t0 drop (−7.4% on 2026-07-31 after a 13.3% run up into a 6.9% beat).
+
+### 8.3 SNDK: verified facts and why most statistics are not possible yet
+
+* **Company (SEC):** Sandisk Corp, CIK 2023554, Form 10 registration (10-12B) filed 2024-11-25, amended 2025-01-27; fiscal year end listed as 06/28 (52/53 week year ending late June or early July). No predecessor CIK is merged: the old SanDisk (acquired by Western Digital in 2016) is a different company.
+* **Trading history:** Yahoo bars start 2025-02-13, but volume was 0.2M to 1.3M shares a day until 33.8M on 2025-02-24; the first 7 sessions look like when issued trading, so regular way history starts 2025-02-24 (the exact first regular way date should be confirmed in the company's filings). 431 sessions in total; no splits.
+* **Price:** closing high $2,335.00 on 2026-06-25; last close $1,150.89 on 2026-10-30, 50.7% below it, 89 sessions after the high. The 2026-10-30 close was the first close below the 200 day average in its trading history (1 crossing, 99.6% of days above).
+
+**Fiscal quarters, as first reported ($M)**
+
+| Quarter end | Fiscal | Revenue | Net income | EPS | Filed |
+|---|---|---|---|---|---|
+| 2024-12-27 | FY2025 Q2 | 1,876 | 104 | 0.72 | 2025-03-07 |
+| 2025-03-28 | FY2025 Q3 | 1,695 | −1,933 | −13.33 | 2025-05-12 |
+| 2025-06-27 | FY2025 Q4 | 1,901 | −23 | (FY minus 9M) | 2025-08-21 |
+| 2025-10-03 | FY2026 Q1 | 2,308 | 112 | 0.75 | 2025-11-07 |
+| 2026-01-02 | FY2026 Q2 | 3,025 | 803 | 5.15 | 2026-01-30 |
+| 2026-04-03 | FY2026 Q3 | 5,950 | 3,615 | 23.03 | 2026-05-01 |
+| 2026-07-03 | FY2026 Q4 | 8,965 | 6,903 | (FY minus 9M) | 2026-08-17 |
+| 2026-10-02 | FY2027 Q1 | 11,031 | 8,101 | 52.60 | 2026-10-30 |
+
+Last four quarters: revenue $28,971M, net income $19,422M (67% of revenue).
+
+**Every report since the listing** (all 8-Ks accepted 16:07 to 16:14 ET, after the close)
+
+| Report | EPS estimate / actual | Surprise | Run up (20 sessions) | Gap | t0 | t0 versus SMH | Next 5 sessions | Next 20 sessions |
+|---|---|---|---|---|---|---|---|---|
+| 2025-05-07 | −0.39 / −0.30 | +23% | +8.1% | 0.0% | +4.8% | +4.0% | +10.6% | +6.8% |
+| 2025-08-14 | 0.03 / 0.29 | +867% | +12.4% | −7.8% | −4.6% | −2.5% | +4.1% | +102.3% |
+| 2025-11-06 | 0.89 / 1.22 | +37% | +60.2% | +0.4% | +15.3% | +16.2% | +6.1% | −5.9% |
+| 2026-01-29 | 3.54 / 6.20 | +75% | +124.5% | +20.8% | +6.9% | +10.2% | +3.8% | +7.4% |
+| 2026-04-30 | 14.66 / 23.41 | +60% | +58.3% | −3.4% | +8.3% | +7.6% | +31.6% | +48.4% |
+| 2026-08-05 | 34.52 / 39.25 | +14% | −21.8% | −13.1% | −6.8% | −7.1% | +21.4% | +23.6% |
+| 2026-10-29 | 46.41 / 49.51 | +7% | −25.6% | −8.6% | −13.5% | −6.5% | (not yet) | (not yet) |
+
+Yahoo lists the next report on 2027-02-15 (an estimate, no time).
+
+**What the SNDK data can and cannot say**
+* VERIFIED: of the five reports since November 2025, the two smallest beats (+14% and +7%, against a median of 37% for all seven) were the only ones with negative t0 reactions, and the closing high (2026-06-25) came about six weeks before the first of them. The August 2025 report also fell (−4.6%) despite a +867% surprise: a percentage surprise on an estimate near zero says little, so M2 also measures surprise in dollars per share relative to the share price.
+* Not evidence: seven reports cannot separate "smaller beat than usual" from "falling into the report" (both August and October came after declines of more than 20% in 20 sessions), and after the August report the stock rose 21% in 5 sessions anyway.
+* Moving average statistics for SNDK rest on 1 to 2 past streaks (20 day: 2; 50 day: 1; 200 day: 0) and are not reported as findings.
+* The cycle question (P1.3) is live: profits rose from about 0 to $8.1B a quarter within a year. Whether today's multiple reflects peak profits needs the cycle module with proxies whose histories cover full memory cycles (Micron, Yahoo history from 2005; Western Digital, which held the flash business until the spin off) and industry pricing. Proxy results will be labeled as proxies, never as SNDK's own history.
+
+### 8.4 Hypotheses register
+
+| Hypothesis (from the user unless noted) | Label now | What the data shows so far | Next step |
+|---|---|---|---|
+| A habitual big beater that delivers a smaller beat gets sold | HYPOTHESIS | consistent anecdotes in SNDK (2 of 2) and AAPL (3 of 3 smaller beats fell, but 3 of 5 larger ones did too) | M2 surprise versus usual across many companies; needs timestamped consensus for a clean test |
+| Big run ups into earnings lead to more frequent post report declines | ASSOCIATION, not supported for AAPL | 41% (high run up) versus 39% (mid) versus 55% (low) negative t0 | same table across the watchlist; split by result and guidance |
+| A long streak above a moving average raises pullback risk | ASSOCIATION, not clearly supported for AAPL | 20 and 200 day: conditional medians at or above the same side baseline at 3, 5 and 10 sessions; 50 day: slightly below at 3 and 10 sessions (n = 31) | add extension and earnings conditions; M12 |
+| Crossing a market cap milestone precedes drawdowns (AAPL $1T, $2T, $3T) | dates VERIFIED; effect untested | 2 of 4 first crossings followed by about −30% within 120 sessions, 2 of 4 by under −10% | matched control rallies (M6) |
+| A low multiple at a profit peak is a trap for cyclicals (added for SNDK) | HYPOTHESIS | SNDK profit growth is extreme; no cycle history of its own | M3 cycle module with labeled proxies |
+| Good news stops being rewarded near tops (P1.2) | HYPOTHESIS | SNDK peak preceded two weakly received beats | reaction quality flags and lead times (M2, M8) |
 
 ## 9. Open questions for the user
 

@@ -2,7 +2,7 @@
 
 Evidence based cycle research for the market, sectors, industries and single stocks: drawdowns, seasonality, earnings behavior, valuation vs own history and peers, rally and selloff exhaustion, bounce vs recovery, relative strength, market regimes, and similar past situations. Every pattern is reported with its count, hit rate, failures, interval, and an out of sample check.
 
-See `RESEARCH_FRAMEWORK.md` for definitions and rules, and `reports/market_study.md` for the first real data results.
+See `RESEARCH_FRAMEWORK.md` for definitions and rules, `reports/market_study.md` for the first real data results, and `SYSTEM_PLAN.md` for the plan that extends the research into hold, reduce, protect and reenter decisions (with the AAPL and SNDK case studies, reproducible with `python scripts/case_study_facts.py AAPL SNDK`).
 
 ## Setup (Mac)
 
@@ -143,5 +143,6 @@ mcl/study.py    runs every study for one ticker; used by dashboard, report and C
 mcl/verify.py   SEC fundamentals checks (python -m mcl verify)
 mcl/doctor.py   live data preflight (python -m mcl doctor)
 app/            Streamlit dashboard
+scripts/        case_study_facts.py (verified facts for case studies)
 tests/          known answer tests, SEC parsing fixtures, no lookahead property tests
 ```
