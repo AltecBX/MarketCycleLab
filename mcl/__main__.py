@@ -12,6 +12,9 @@
                               exposure; --options adds covered call, put and collar payoffs from today's chain;
                               input: symbol, price paid, quantity (data/user/holdings.csv, or --position-csv:
                               the Position sheet as CSV or as Google Sheets JSON values)
+  research [TICKER ...]       JSON files for the research website: TICKERS + holdings (--position-csv) + watchlist
+                              (--watchlist, default data/user/watchlist.json) + SPY, QQQ, IWM and the sector funds;
+                              --json DIR (default data/user/research_web)
   demo                        HTML report on synthetic data (no network)
 """
 from __future__ import annotations
@@ -55,6 +58,11 @@ def main(argv=None) -> int:
     hp.add_argument("--window", type=int, default=63, help="sessions over which the peak is measured")
     hp.add_argument("--out", help="also write the report to this markdown file")
     hp.add_argument("--json", help="also write the website data (holdings, portfolio, pairs) as JSON files to this folder")
+    rp = sub.add_parser("research")
+    rp.add_argument("tickers", nargs="*")
+    rp.add_argument("--position-csv", help="also cover the holdings in this Position sheet (CSV or Google Sheets JSON values)")
+    rp.add_argument("--watchlist", help="JSON list of symbols (default data/user/watchlist.json)")
+    rp.add_argument("--json", help="folder for the JSON files (default data/user/research_web)")
     d = sub.add_parser("doctor")
     d.add_argument("--offline", action="store_true", help="skip the network probes")
     sub.add_parser("demo")
@@ -144,6 +152,14 @@ def main(argv=None) -> int:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         Path(out).write_text(text, encoding="utf-8")
         print(f"\nsaved: {out}")
+    elif a.cmd == "research":
+        from . import research
+        tks = research.research_set(a.tickers, a.position_csv, a.watchlist)
+        out = Path(a.json) if a.json else research.DEFAULT_OUT
+        print(f"research set: {len(tks)} symbols")
+        for name, (n, size) in research.build(tks, out).items():
+            print(f"{name}: {n:,} rows, {size:,} bytes")
+        print(f"written to {out}")
     elif a.cmd == "doctor":
         from . import doctor
         rows = doctor.checks(network=not a.offline)

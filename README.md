@@ -113,6 +113,19 @@ python -m mcl holdings --position-csv data/user/position.json
 python -m mcl holdings AAPL MU --position-csv data/user/position.json --options
 ```
 
+## Research workbench
+
+`python -m mcl research --position-csv data/user/position.json` computes stock level research and writes it as JSON for the website, into `data/user/research_web/` (git ignored). It covers your holdings, the watchlist (`data/user/watchlist.json`), SPY, QQQ, IWM and the sector funds. The scheduled cloud run builds it and uploads it, so nothing runs on your computer.
+
+* **Search list:** SEC's company list, in SEC's order (roughly by size), plus the covered funds. Each entry is marked covered or not covered yet.
+* **Coverage and limits per stock:** years of prices versus dated reports, release timing, fiscal calendar, short histories, and corporate actions (for example, the current SNDK listing is not spliced with the old SanDisk).
+* **Earnings:**
+  * one row per report: release time from SEC filing times (never guessed), EPS and consensus as Yahoo reports them, run ups, first session / 1 week / 1 month reactions, beat but fell, and point in time GAAP P/E
+  * the 6 weeks before / 4 weeks after window: one baseline (the last close on or before day −42) kept through the report, actual sessions only, and the current cycle drawn only through the latest close; confirmed dates come from `data/confirmed_report_dates.json`
+* **Moving averages (5, 20, 50, 200 day):** current streaks, completed streak lengths (first and current streaks excluded), and what followed comparable streaks.
+* **Drawdown episodes:** completed, ongoing and censored, at 10/20/30/40% declines, with denominators.
+* **Other studies:** seasonality over complete periods only, simple rule tests (signal at a close, trade at the next close, 0.10% cost, warm up), and data provenance.
+
 ## Verifying SEC fundamentals
 
 Valuation uses quarters rebuilt from SEC XBRL facts. A quarter is the three month value when the 10-Q has one, otherwise a difference of year to date values (Q4 = full year minus nine months). `python -m mcl verify` checks that reconstruction per ticker, prints a summary, and writes every compared number to `reports/verify_<TICKER>.csv` with a link to the filing. With no tickers it runs the stocks in the watchlist.
