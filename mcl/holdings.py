@@ -370,7 +370,7 @@ def render_card(c: dict) -> str:
                      f"(all {s['side']} days {_pct(h['base_median_ret_pct'] / 100)}), drop bigger than a typical move "
                      f"{_pct(h['pct_drop_gt_typical'] / 100, 0, False)} (all days {_pct(h['base_pct_drop_gt_typical'] / 100, 0, False)})")
         elif h.get("n") is not None:
-            line += f"; {h['n']} comparable streaks, too few"
+            line += f"; {h['n']} comparable streak{'' if h['n'] == 1 else 's'}, too few"
         L.append(line)
     return "\n".join(L)
 
