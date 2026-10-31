@@ -147,6 +147,7 @@ def delta_pick(calls: pd.DataFrame, S: float, T: float, target: float = 0.20) ->
 def strategies(S: float, prior_close: float, shares: int, calls: pd.DataFrame, puts: pd.DataFrame,
                days: int, coverages=(0.25, 0.5, 1.0)) -> pd.DataFrame:
     """One row per (strategy, strike, coverage): premium, sale price, protection, upside cap, tax flags."""
+    calls, puts = price_bounds(calls, puts, S)
     T = max(days, 0) / 365.0
     strikes = calls["strike"].tolist()
     picks = []
@@ -247,10 +248,24 @@ def next_day_estimate(S: float, shares: int, st: pd.DataFrame, days: int, moves=
     return pd.DataFrame(out)
 
 
+def price_bounds(calls: pd.DataFrame, puts: pd.DataFrame, S: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop quotes no standard contract can have: a call worth more than the share, a put worth more than
+    its strike. Live, Yahoo listed NFLX contracts adjusted for the 10 for 1 split under standard symbols
+    (2027-01-15 270 strike call bid $953 with the stock at $62.08); their deliverable is not 100 shares."""
+    def mids(df):
+        return pd.Series([mid_price(r)[0] for _, r in df.iterrows()], index=df.index, dtype=float)
+    if len(calls):
+        calls = calls[~(mids(calls) > S)]
+    if len(puts):
+        puts = puts[~(mids(puts) > puts["strike"].astype(float))]
+    return calls, puts
+
+
 def standard_contracts(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
     """Keep standard contracts (symbol = ticker, yymmdd, C or P, strike x 1000 in 8 digits). Contracts adjusted
-    for a split or merger carry another root (or odd strikes, such as a 2450 strike on a $62 stock after a
-    10 for 1 split) and have a different deliverable. If no symbol matches (unusual roots), keep everything."""
+    for a split or merger often carry another root and have a different deliverable. If no symbol matches
+    (unusual roots), keep everything. Yahoo does not always change the symbol (live NFLX case), so
+    `price_bounds` and the limits in `delta_pick` are the second line of defense."""
     if "contractSymbol" not in df or df.empty:
         return df
     ok = df["contractSymbol"].astype(str).str.fullmatch(rf"{re.escape(ticker.upper())}\d{{6}}[CP]\d{{8}}")

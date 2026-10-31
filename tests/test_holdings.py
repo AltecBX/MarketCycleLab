@@ -255,3 +255,19 @@ def test_recovery_line_when_option_income_covers_the_loss():
     text = holdings.render_card(holdings.position_card(h, prices, None))
     assert "rally needed to cost +10.8%" in text
     assert "price already 30.6% above the cost after option income ($677.21)" in text
+
+
+def test_split_adjusted_contracts_under_standard_symbols():
+    # live NFLX 2027-01-15 rows, stock $62.08: post split strikes, then pre split strikes with the old deliverable
+    calls = pd.DataFrame({
+        "contractSymbol": ["NFLX270115C00066000", "NFLX270115C00073000", "NFLX270115C00270000", "NFLX270115C02450000"],
+        "strike": [66.0, 73.0, 270.0, 2450.0], "bid": [2.6, 0.99, 953.0, 5.20], "ask": [2.8, 1.09, 961.95, 8.35],
+        "lastPrice": [2.7, 1.04, 950.0, 6.8], "impliedVolatility": [0.45, 0.43, 0.0, 4.336]})
+    puts = pd.DataFrame({"contractSymbol": ["NFLX270115P00055000"], "strike": [55.0], "bid": [0.5], "ask": [0.6],
+                         "lastPrice": [0.55], "impliedVolatility": [0.5]})
+    assert len(options.standard_contracts(calls, "NFLX")) == 4        # symbols look standard: not caught here
+    c, _ = options.price_bounds(calls, puts, 62.08)
+    assert 270.0 not in c["strike"].tolist()                           # a call worth more than the share
+    st = options.strategies(62.08, 62.08, 1300, calls, puts, days=74)
+    assert set(st.loc[st["strategy"] == "covered call", "strike"]) <= {66.0, 73.0}
+    assert st.loc[st["label"] == "call 0.20 delta", "strike"].iloc[0] == 73.0
