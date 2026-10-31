@@ -144,3 +144,33 @@ def test_basis_compare_aligns_periods_a_day_apart():
     summary = r.iloc[-1]
     assert summary["status"] == "ok" and summary["note"].startswith("1 periods compared, 0 differ")
     assert "misses 0" in summary["note"]
+
+
+def test_nvda_partial_year_fact_in_10k_is_ignored():
+    # NVDA revenue $M, real facts: the FY2018 10-K carries a six-month fact holding the Q2 three-month value
+    rows = [F("2017-05-01", "2017-07-30", 2230, "2017-08-23", "10-Q", "q217"),
+            F("2017-01-30", "2017-07-30", 4167, "2017-08-23", "10-Q", "q217"),
+            F("2017-01-30", "2017-07-30", 2230, "2018-02-28", "10-K", "k18"),
+            F("2017-01-30", "2018-01-28", 9714, "2018-02-28", "10-K", "k18"),
+            F("2018-04-30", "2018-07-29", 3123, "2018-08-16", "10-Q", "q219"),
+            F("2018-01-29", "2018-07-29", 6330, "2018-08-16", "10-Q", "q219"),
+            F("2017-01-30", "2017-07-30", 4167, "2018-08-16", "10-Q", "q219")]
+    r = sec_asof.fundamentals_asof(payload({"Revenues": rows})).set_index("knowledge_date")
+    assert r.loc["2018-08-16", "ttm_revenue"] == (9714 - 4167 + 6330) * M
+
+
+def test_meta_10k_quarterly_recast_is_used():
+    # META net income $M, real facts: the FY2016 10-K recast Q1 2016 from 1,510 to 1,738 (consistent with its year)
+    rows = [F("2016-01-01", "2016-03-31", 1510, "2016-04-28", "10-Q", "q116"),
+            F("2016-01-01", "2016-03-31", 1738, "2017-02-03", "10-K", "k16"),
+            F("2016-01-01", "2016-12-31", 10217, "2017-02-03", "10-K", "k16"),
+            F("2017-01-01", "2017-03-31", 3064, "2017-05-04", "10-Q", "q117"),
+            F("2016-01-01", "2016-03-31", 1738, "2017-05-04", "10-Q", "q117")]
+    r = sec_asof.fundamentals_asof(payload({"NetIncomeLoss": rows})).set_index("knowledge_date")
+    assert r.loc["2017-05-04", "ttm_net_income"] == (10217 - 1738 + 3064) * M
+
+
+def test_partial_year_filter_keeps_transition_reports():
+    df = sec._facts(payload({"Revenues": [F("2020-01-01", "2020-06-30", 5, "2020-08-01", "10-KT", "t"),
+                                          F("2020-01-01", "2020-06-30", 5, "2020-08-01", "10-K", "k")]}), "Revenues")
+    assert sec._drop_partial_years_from_annual_reports(df)["form"].tolist() == ["10-KT"]

@@ -133,6 +133,22 @@ def _facts(data: dict, tag: str, unit_pref=("USD", "shares", "USD/shares"), taxo
     return df.dropna(subset=["end", "filed", "val"])
 
 
+ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "20-F/A", "40-F", "40-F/A"}   # not 10-KT: transition periods are partial
+
+
+def _drop_partial_years_from_annual_reports(df: pd.DataFrame) -> pd.DataFrame:
+    """An annual report has no half-year or nine-month figures; such facts are tagging errors.
+
+    NVIDIA's FY2018 10-K tagged its Q2 three-month values (revenue 2,230M, net income 583M) with a
+    six-month context (2017-01-30 to 2017-07-30); the 10-Q had reported 4,167M and 1,091M. Three-month
+    values in a 10-K's quarterly table are kept (META's FY2016 10-K recast Q1 2016 that way).
+    """
+    if df.empty or "form" not in df or "start" not in df:
+        return df
+    days = (df["end"] - df["start"]).dt.days
+    return df[~(df["form"].astype(str).isin(ANNUAL_FORMS) & days.between(101, 349))]
+
+
 def _drop_inconsistent_quarter_tables(df: pd.DataFrame) -> pd.DataFrame:
     """Drop three-month facts from a filing whose four quarters do not add up to that filing's own year.
 
@@ -176,7 +192,7 @@ def discrete_quarters(df: pd.DataFrame, keep: str = "first") -> pd.DataFrame:
     d = df.dropna(subset=["start"]).copy()
     if "accn" not in d:
         d["accn"] = ""
-    d = _drop_inconsistent_quarter_tables(d)
+    d = _drop_inconsistent_quarter_tables(_drop_partial_years_from_annual_reports(d))
     d = d.sort_values("filed").drop_duplicates(["start", "end"], keep=keep)
     d["days"] = (d["end"] - d["start"]).dt.days
     cands = [(r.end, r.val, r.filed, False, r.accn) for r in d[d["days"].between(*QUARTER_DAYS)].itertuples()]
@@ -292,7 +308,7 @@ def quarterly_fundamentals(data: dict) -> pd.DataFrame:
     return q.sort_values("period_end").reset_index(drop=True)
 
 
-FUNDAMENTALS_CACHE = "fundamentals_v3"   # v3: earliest filed across tags; first-known quarters; predecessors
+FUNDAMENTALS_CACHE = "fundamentals_v4"   # v4: partial-year facts in 10-Ks ignored; earliest filed across tags
 
 
 def fundamentals(ticker: str) -> pd.DataFrame:
@@ -318,7 +334,7 @@ def _eastern(acceptance: str) -> pd.Timestamp:
     return ts.tz_convert("America/New_York").tz_localize(None)
 
 
-ASOF_CACHE = "fundamentals_asof_v1"
+ASOF_CACHE = "fundamentals_asof_v2"
 
 
 def fundamentals_asof(ticker: str) -> pd.DataFrame:

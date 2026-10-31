@@ -49,7 +49,7 @@ def _field_facts(data: dict, key: str) -> pd.DataFrame:
         f = f.dropna(subset=["start"])
         if "accn" not in f:
             f = f.assign(accn="")
-        f = sec._drop_inconsistent_quarter_tables(f)
+        f = sec._drop_inconsistent_quarter_tables(sec._drop_partial_years_from_annual_reports(f))
         parts.append(f[FACT_COLS].assign(tag=tag, rank=rank))
     if not parts:
         return pd.DataFrame(columns=FACT_COLS + ["tag", "rank", "days"])
