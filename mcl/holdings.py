@@ -166,7 +166,9 @@ def earnings_risk(prices: pd.DataFrame, earnings: pd.DataFrame | None, as_of: pd
     if len(fut):
         nd = fut.iloc[0]
         out["next_date"] = nd["date"]
-        out["next_timing"] = nd.get("timing", "unknown")
+        # Yahoo stamps unconfirmed future dates with a placeholder time that classifies as during market hours
+        t = str(nd.get("timing", "")).lower()
+        out["next_timing"] = {"bmo": "before the open", "amc": "after the close"}.get(t, "time not confirmed")
         out["sessions_to"] = int(np.busday_count(as_of.date(), nd["date"].date()))
     past = e[e["date"] <= as_of]
     if len(past) < 2:
@@ -233,19 +235,25 @@ def portfolio(cards: list[dict], closes: pd.DataFrame, spy: pd.Series | None, sm
     out["earnings_next_10"] = sorted(soon, key=lambda x: x[2])
     out["earnings_next_10_share"] = sum(x[3] for x in soon) / total if total else np.nan
     # historical stress with today's shares
+    # names listed inside the window are left out (and named) so one new listing cannot shorten the replay
     sh = df.set_index("ticker")["shares"]
     px = closes[sh.index.intersection(closes.columns)].tail(lookback).ffill()
-    pv = (px * sh.reindex(px.columns)).sum(axis=1, min_count=1)
-    pv = pv[px.notna().sum(axis=1) == px.shape[1]]
+    first = px.apply(lambda c: c.first_valid_index())
+    late = [t for t in px.columns if first[t] is None or first[t] > px.index[0]]
+    if len(late) == px.shape[1]:
+        late = []
+    keep = [t for t in px.columns if t not in late]
+    pv = (px[keep] * sh.reindex(keep)).sum(axis=1, min_count=1)
+    pv = pv[px[keep].notna().all(axis=1)]
     if len(pv) > 25:
         r1 = pv.pct_change().dropna()
         r20 = (pv / pv.shift(20) - 1).dropna()
+        vals = df.set_index("ticker")["value"]
         out["stress"] = {"start": pv.index[0], "end": pv.index[-1], "worst_day": float(r1.min()), "worst_day_date": r1.idxmin(),
                          "worst_20": float(r20.min()), "worst_20_end": r20.idxmin(),
                          "max_drawdown": float((pv / pv.cummax() - 1).min()),
-                         "names": int(px.shape[1]),
-                         "limited_by": (px.apply(lambda c: c.first_valid_index()).idxmax()
-                                        if pv.index[0] > px.index[0] else None)}
+                         "names": len(keep), "of": int(px.shape[1]), "excluded": late,
+                         "excluded_share": float(vals.reindex(late).sum() / total) if late and total else 0.0}
     # betas and downside co-movement
     rets = closes.pct_change().tail(252)
     betas = {}
@@ -298,18 +306,24 @@ def render_card(c: dict) -> str:
     if np.isfinite(c.get("option_income", np.nan)):
         L.append(f"* Option income recorded {_usd(c['option_income'])}; cost after that income {_usd(c['effective_cost'], 2)} per share")
     g = c["giveback"]
+    below_cost = np.isfinite(c["cost"]) and c["price"] < c["cost"]
     if g.get("applies"):
         state = "BUDGET USED UP" if g["budget_used_up"] else "within budget"
+        side = "above" if g["room_to_floor_pct"] >= 0 else "below"
+        given = (f"profit given back {_pct(g['given_back_share'], 0, False)} of the peak gain" if not below_cost else
+                 f"the whole peak gain of {_usd(g['peak_gain_per_share'], 2)} per share is gone and the stock is below cost")
         L.append(f"* Giveback: highest close in {g['window']} sessions {_usd(g['peak_close'], 2)} ({g['peak_date'].date()}); "
-                 f"stock {_pct(g['stock_from_peak_pct'])} from it, profit given back {_pct(g['given_back_share'], 0, False)} "
-                 f"of the peak gain; budget {_pct(g['budget'], 0, False)} ends at {_usd(g['floor_price'], 2)} "
-                 f"({_pct(g['room_to_floor_pct'])} away): {state}")
+                 f"stock {_pct(g['stock_from_peak_pct'])} from it; {given}. Budget {_pct(g['budget'], 0, False)} ends at "
+                 f"{_usd(g['floor_price'], 2)}, price {_pct(abs(g['room_to_floor_pct']), 1, False)} {side} it: {state}")
         if "p10_night_loss" in c:
-            uses = "would use up" if c["p10_night_uses_budget"] else "would not use up"
-            L.append(f"* One night earnings risk: a 1 in 10 bad reaction ({_pct(c['earnings']['p10_reaction'])}, "
-                     f"from {c['earnings']['n']} reports) = {_usd(c['p10_night_loss'])}, which {uses} the "
-                     f"{_usd(c['budget_room_dollars'])} of budget room left")
-    else:
+            bad = (f"a 1 in 10 bad reaction ({_pct(c['earnings']['p10_reaction'])}, from {c['earnings']['n']} reports) "
+                   f"= {_usd(c['p10_night_loss'])}")
+            if c["budget_room_dollars"] <= 0:
+                L.append(f"* One night earnings risk: budget already used up; {bad} more")
+            else:
+                uses = "would use up" if c["p10_night_uses_budget"] else "would not use up"
+                L.append(f"* One night earnings risk: {bad}, which {uses} the {_usd(c['budget_room_dollars'])} of budget room left")
+    if not g.get("applies") or below_cost:
         rec = c["recovery"]
         line = f"* Recovery: {_pct(rec['from_high_pct'])} from the high {_usd(rec['high'], 2)}"
         if rec.get("high_date") is not None:
@@ -329,8 +343,9 @@ def render_card(c: dict) -> str:
                          f"so this overstates recovery)")
     e = c["earnings"]
     if e.get("next_date") is not None:
-        L.append(f"* Next report {pd.Timestamp(e['next_date']).date()} ({e.get('next_timing', 'unknown')}), "
-                 f"{e['sessions_to']} sessions away (date from Yahoo or SEC; confirm with the company)")
+        k = e["sessions_to"]
+        L.append(f"* Next report {pd.Timestamp(e['next_date']).date()} ({e.get('next_timing', 'time not confirmed')}), "
+                 f"{k} session{'s' if k != 1 else ''} away (date from Yahoo; confirm with the company)")
     if e.get("n", 0) >= 8:
         L.append(f"* Past reactions ({e['n']} reports): median size {_pct(e['median_abs_reaction'], 1, False)}, "
                  f"1 in 10 worst {_pct(e['p10_reaction'])}, 1 in 10 best {_pct(e['p90_reaction'])}, "
@@ -369,8 +384,9 @@ def render_portfolio(p: dict, budget: float, window: int) -> str:
                  ", ".join(f"{t} {pd.Timestamp(d).date()}" for t, d, _, _ in p["earnings_next_10"]))
     s = p.get("stress")
     if s:
-        why = (f"first date {s['limited_by']} has prices" if s.get("limited_by") else "2 year lookback")
-        L.append(f"* Today's shares of all {s['names']} names, held from {s['start'].date()} ({why}) to "
+        names = (f"{s['names']} of {s['of']} names (left out, listed less than 2 years ago: {', '.join(s['excluded'])}; "
+                 f"{_pct(s['excluded_share'], 1, False)} of value)" if s.get("excluded") else f"all {s['names']} names")
+        L.append(f"* Today's shares of {names}, held from {s['start'].date()} to "
                  f"{s['end'].date()}: worst day {_pct(s['worst_day'])} ({s['worst_day_date'].date()}), worst 20 sessions "
                  f"{_pct(s['worst_20'])} (to {s['worst_20_end'].date()}), largest drawdown {_pct(s['max_drawdown'])}")
     if "scenario_market_minus10" in p:

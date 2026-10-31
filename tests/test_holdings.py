@@ -167,7 +167,7 @@ def test_run_offline(monkeypatch, tmp_path):
     assert "Past reactions" in text
 
 
-def test_stress_window_names_the_late_listing():
+def test_stress_replay_leaves_out_late_listings():
     idx = pd.bdate_range("2023-01-02", periods=600)
     a = pd.Series(np.linspace(100, 160, 600), index=idx)
     b = pd.Series(np.r_[np.full(400, np.nan), np.linspace(50, 40, 200)], index=idx)
@@ -175,9 +175,10 @@ def test_stress_window_names_the_late_listing():
     cards = [{"ticker": t, "shares": 100, "price": float(closes[t].iloc[-1]), "value": 100 * float(closes[t].iloc[-1]),
               "cost": 1.0, "unrealized": 0.0, "option_income": 0.0, "earnings": {}} for t in ("AAA", "NEW")]
     s = holdings.portfolio(cards, closes, None, None, lookback=504)["stress"]
-    assert s["limited_by"] == "NEW" and s["start"] == idx[400]
-    s = holdings.portfolio(cards, closes[["AAA"]], None, None, lookback=504)["stress"]
-    assert s["limited_by"] is None and s["start"] == idx[-504]
+    assert s["excluded"] == ["NEW"] and s["names"] == 1 and s["start"] == idx[-504]
+    assert math.isclose(s["excluded_share"], 4000 / (16000 + 4000))
+    s = holdings.portfolio(cards, closes[["NEW"]], None, None, lookback=504)["stress"]
+    assert s["excluded"] == [] and s["start"] == idx[400]          # every name is new: replay what exists
 
 
 @pytest.mark.parametrize("now,want", [("2026-10-31 12:00", "2026-11-02"),    # Saturday: next Monday
@@ -198,3 +199,19 @@ def test_option_panel_counts_days_from_grant(monkeypatch):
     text = holdings.option_panel("XYZ", card, close, grant=pd.Timestamp("2026-11-02"))
     assert "2026-12-04 (32 days)" in text                     # from Monday 11/2, not Friday 10/30 (35)
     assert "2026-10-30 close $100.00" in text
+
+
+def test_card_for_a_gain_that_turned_into_a_loss():
+    idx = pd.bdate_range("2024-01-02", periods=600)
+    path = np.r_[np.linspace(100, 90, 500), np.linspace(90, 130, 60), np.linspace(130, 80, 40)]
+    prices = pd.DataFrame({"close": path, "open": path, "high": path, "low": path, "volume": 1.0}, index=idx)
+    past = list(pd.date_range("2024-02-01", periods=9, freq="63D"))
+    earn = pd.DataFrame({"date": past + [idx[-1] + pd.Timedelta(days=3)],
+                         "timing": ["amc"] * 9 + ["dmh"], "kind": "report"})
+    h = pd.Series({"ticker": "XYZ", "shares": 100, "cost": 100.0, "option_income": 0.0})
+    c = holdings.position_card(h, prices, earn)
+    text = holdings.render_card(c)
+    assert "the whole peak gain" in text and "BUDGET USED UP" in text and "below it" in text
+    assert "* Recovery:" in text                                   # below cost: the recovery view shows too
+    assert "budget already used up" in text
+    assert "(time not confirmed)" in text                          # a future 'dmh' is Yahoo's placeholder
