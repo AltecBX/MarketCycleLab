@@ -54,6 +54,7 @@ def main(argv=None) -> int:
     hp.add_argument("--giveback", type=float, default=0.25, help="share of peak gain you accept giving back")
     hp.add_argument("--window", type=int, default=63, help="sessions over which the peak is measured")
     hp.add_argument("--out", help="also write the report to this markdown file")
+    hp.add_argument("--json", help="also write the website data (holdings, portfolio, pairs) as JSON files to this folder")
     d = sub.add_parser("doctor")
     d.add_argument("--offline", action="store_true", help="skip the network probes")
     sub.add_parser("demo")
@@ -137,7 +138,7 @@ def main(argv=None) -> int:
         return 1
     elif a.cmd == "holdings":
         from . import holdings
-        text = holdings.run(a.file, a.position_csv, a.tickers, a.options, a.giveback, a.window)
+        text = holdings.run(a.file, a.position_csv, a.tickers, a.options, a.giveback, a.window, a.json)
         print(text)
         out = a.out or REPORTS_DIR / f"holdings_{pd.Timestamp.today().date()}.md"
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)

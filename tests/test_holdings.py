@@ -293,3 +293,33 @@ def test_split_adjusted_contracts_under_standard_symbols():
     st = options.strategies(62.08, 62.08, 1300, calls, puts, days=74)
     assert set(st.loc[st["strategy"] == "covered call", "strike"]) <= {66.0, 73.0}
     assert st.loc[st["label"] == "call 0.20 delta", "strike"].iloc[0] == 73.0
+
+
+def test_dashboard_json_is_strict_and_complete(monkeypatch, tmp_path):
+    import json
+    from mcl.data import loader
+    idx = pd.bdate_range("2023-01-02", periods=800)
+    rng = np.random.default_rng(5)
+
+    def fake_prices(t):
+        c = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.02, len(idx))))
+        return pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1e6}, index=idx)
+
+    monkeypatch.setattr(loader, "get_prices", fake_prices)
+    monkeypatch.setattr(holdings, "load_market_data", lambda tks: {
+        t: {"prices": fake_prices(t), "notes": [],
+            "earnings": pd.DataFrame({"date": list(pd.date_range("2023-02-01", periods=12, freq="91D")) + [idx[-1] + pd.Timedelta(days=4)],
+                                      "timing": ["amc"] * 12 + ["dmh"], "kind": "report"})} for t in tks})
+    p = tmp_path / "position.csv"
+    p.write_text(POSITION_CSV)
+    holdings.run(position_csv=p, json_dir=tmp_path / "web")
+    rows = {n: json.loads((tmp_path / "web" / f"holdings_{n}.json").read_text()) for n in ("holdings", "portfolio", "pairs")}
+    h = {r["symbol"]: r for r in rows["holdings"]}
+    assert set(h) == {"AAA", "BBB", "CCC"} and h["AAA"]["shares"] == 300 and h["AAA"]["price_paid"] == 126.7
+    assert math.isclose(h["AAA"]["paid"], 38010.0)
+    assert h["BBB"]["report_time"] == "time not confirmed" and h["BBB"]["sessions_to_report"] is not None
+    assert {"ma20_side", "ma50_gap", "ma200_sessions", "budget_state", "bad_night"} <= set(h["CCC"])
+    port = rows["portfolio"][0]
+    assert port["positions"] == 3 and math.isclose(port["paid"], 38010 + 110800 + 175000)
+    for r in rows["holdings"]:                                   # strict JSON: no NaN slipped through
+        json.dumps(r, allow_nan=False)
