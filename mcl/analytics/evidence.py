@@ -82,7 +82,8 @@ def outcome_summary(df: pd.DataFrame, hit_col: str, ret_col: str | None = None,
     if min_gap_days and date_col in d:
         d = decluster(d, date_col, min_gap_days)
     n = int(len(d))
-    k = int(d[hit_col].astype(bool).sum()) if n else 0
+    hits = d[hit_col].astype(bool)
+    k = int(hits.sum()) if n else 0
     lo, hi = wilson_ci(k, n)
     res = {"n": n, "hits": k, "fails": n - k, "hit_rate": k / n if n else np.nan,
            "ci_low": lo, "ci_high": hi}
@@ -95,21 +96,24 @@ def outcome_summary(df: pd.DataFrame, hit_col: str, ret_col: str | None = None,
         res["base_rate"] = base_rate
         res["lift"] = (k / n) / base_rate if base_rate else np.nan
         res["p_value"] = binom_pvalue(k, n, base_rate)
+    # one quantile call per column: pandas computes a scalar quantile as the list [q], so the values are the same
     if ret_col and n:
         r = d[ret_col].dropna()
-        res.update({"ret_median": r.median(), "ret_mean": r.mean(), "ret_p10": r.quantile(0.10),
-                    "ret_p25": r.quantile(0.25), "ret_p75": r.quantile(0.75), "ret_p90": r.quantile(0.90),
+        q = r.quantile([0.10, 0.25, 0.75, 0.90])
+        res.update({"ret_median": r.median(), "ret_mean": r.mean(), "ret_p10": q.iloc[0],
+                    "ret_p25": q.iloc[1], "ret_p75": q.iloc[2], "ret_p90": q.iloc[3],
                     "ret_worst": r.min(), "ret_best": r.max()})
-        fails = d.loc[~d[hit_col].astype(bool), ret_col].dropna()
+        fails = d[ret_col][~hits].dropna()
         res["ret_median_when_failed"] = fails.median() if len(fails) else np.nan
     if mae_col and n:
         m = d[mae_col].dropna()
         res.update({"mae_median": m.median(), "mae_p25": m.quantile(0.25), "mae_worst": m.min()})
-        wins = d.loc[d[hit_col].astype(bool), mae_col].dropna()
+        wins = d[mae_col][hits].dropna()
         res["mae_median_before_hit"] = wins.median() if len(wins) else np.nan
     if days_col and n:
         t = d[days_col].dropna()
-        res.update({"days_median": t.median(), "days_p25": t.quantile(0.25), "days_p75": t.quantile(0.75)})
+        q = t.quantile([0.25, 0.75])
+        res.update({"days_median": t.median(), "days_p25": q.iloc[0], "days_p75": q.iloc[1]})
     return res
 
 

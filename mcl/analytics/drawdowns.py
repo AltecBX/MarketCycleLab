@@ -114,15 +114,15 @@ def swing_declines(close: pd.Series, threshold: float = 0.10, near_high: float =
     d["recovery_bars"] = rec_bars
     d["recovery_date"] = rec_dates
     ep = underwater_episodes(c, min_depth=0.0) if episodes is None else episodes
-    ep_no = []
-    for s_i, e_i in zip(d["start_i"], d["end_i"]):
-        k = np.nan
-        for j, row in enumerate(ep.itertuples(index=False)):
-            end = row.recovery_i if row.recovery_i >= 0 else len(v)
-            if row.peak_i <= s_i and e_i <= end:
-                k = j
-                break
-        ep_no.append(k)
+    # first episode (in row order) whose span [peak_i, recovery_i or end of data] contains the leg
+    ep_no = [np.nan] * len(d)
+    if len(ep):
+        peak = ep["peak_i"].to_numpy()
+        rec = ep["recovery_i"].to_numpy()
+        end = np.where(rec >= 0, rec, len(v))
+        inside = (peak[None, :] <= d["start_i"].to_numpy()[:, None]) & (d["end_i"].to_numpy()[:, None] <= end[None, :])
+        first = inside.argmax(axis=1)
+        ep_no = [int(j) if ok else np.nan for j, ok in zip(first, inside.any(axis=1))]
     d["episode_no"] = ep_no
     d["leg_in_episode"] = d.groupby("episode_no", dropna=False).cumcount() + 1
     d.loc[d["episode_no"].isna(), "leg_in_episode"] = np.nan
@@ -162,8 +162,9 @@ def annual_selloff_counts(close: pd.Series, thresholds=(0.05, 0.10, 0.20), near_
     c = close.dropna()
     years = pd.Index(sorted(set(c.index.year)), name="year")
     out = pd.DataFrame(index=years)
+    ep = underwater_episodes(c, min_depth=0.0)  # same for every threshold
     for th in thresholds:
-        d = swing_declines(c, th, near_high)
+        d = swing_declines(c, th, near_high, episodes=ep)
         tag = f"{int(round(th * 100))}pct"
         if d.empty:
             out[f"n_{tag}"] = 0

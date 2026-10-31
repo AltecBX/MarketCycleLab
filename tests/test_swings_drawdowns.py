@@ -69,3 +69,27 @@ def test_annual_counts_threshold_semantics(known_path):
     a = drawdowns.annual_selloff_counts(known_path, (0.10, 0.25))
     assert a["n_10pct"].sum() == 3
     assert a["n_25pct"].sum() == 1  # only 120 -> 88 as one leg once 10%+ bounces are not counted
+
+
+def _episode_no_reference(d, ep, n):
+    """The original row-by-row lookup: first episode whose span contains the leg."""
+    out = []
+    for s_i, e_i in zip(d["start_i"], d["end_i"]):
+        k = np.nan
+        for j, row in enumerate(ep.itertuples(index=False)):
+            end = row.recovery_i if row.recovery_i >= 0 else n
+            if row.peak_i <= s_i and e_i <= end:
+                k = j
+                break
+        out.append(k)
+    return out
+
+
+def test_swing_declines_episode_lookup_matches_reference(random_ohlcv):
+    c = random_ohlcv["close"]
+    for min_depth in (0.0, 0.05, 0.15, 0.99):  # deeper filters leave legs outside every listed episode
+        ep = drawdowns.underwater_episodes(c, min_depth)
+        for th in (0.03, 0.05, 0.10):
+            d = drawdowns.swing_declines(c, th, episodes=ep)
+            ref = pd.Series(_episode_no_reference(d, ep, len(c)), dtype=d["episode_no"].dtype)
+            pd.testing.assert_series_equal(d["episode_no"], ref, check_names=False)
