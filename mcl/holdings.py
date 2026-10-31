@@ -329,8 +329,12 @@ def render_card(c: dict) -> str:
         if rec.get("high_date") is not None:
             line += f" ({pd.Timestamp(rec['high_date']).date()})"
         line += f"; rally needed to cost {_pct(rec['rally_to_cost_pct'])}"
-        if np.isfinite(rec.get("rally_to_effective_cost_pct", np.nan)):
-            line += f", to cost after option income {_pct(rec['rally_to_effective_cost_pct'])}"
+        r_eff = rec.get("rally_to_effective_cost_pct", np.nan)
+        if np.isfinite(r_eff) and r_eff > 0:
+            line += f", to cost after option income {_pct(r_eff)}"
+        elif np.isfinite(r_eff):
+            line += (f"; price already {_pct(1 / (1 + r_eff) - 1, 1, False)} above the cost after option income "
+                     f"({_usd(c['effective_cost'], 2)})")
         L.append(line)
         ep = rec.get("episodes")
         if ep:

@@ -245,3 +245,13 @@ def test_incomplete_strike_list_makes_itm_flag_uncertain():
     # AAPL 11/20 (2.50 spacing, price 344.63) and MU 12/18 (10 spacing, price 884.74): complete
     assert options.strike_gap([320 + 2.5 * i for i in range(17)], 344.63)[0] is False
     assert options.strike_gap([840.0, 850, 860, 870, 880, 890, 900], 884.74)[0] is False
+
+
+def test_recovery_line_when_option_income_covers_the_loss():
+    idx = pd.bdate_range("2024-01-02", periods=300)
+    path = np.r_[np.linspace(800, 1200, 200), np.linspace(1200, 884.74, 100)]
+    prices = pd.DataFrame({"close": path, "open": path, "high": path, "low": path, "volume": 1.0}, index=idx)
+    h = pd.Series({"ticker": "MU", "shares": 100, "cost": 980.0, "option_income": 30279.0})
+    text = holdings.render_card(holdings.position_card(h, prices, None))
+    assert "rally needed to cost +10.8%" in text
+    assert "price already 30.6% above the cost after option income ($677.21)" in text
