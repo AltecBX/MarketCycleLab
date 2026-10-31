@@ -297,6 +297,7 @@ def test_split_adjusted_contracts_under_standard_symbols():
 
 def test_dashboard_json_is_strict_and_complete(monkeypatch, tmp_path):
     import json
+
     from mcl.data import loader
     idx = pd.bdate_range("2023-01-02", periods=800)
     rng = np.random.default_rng(5)
