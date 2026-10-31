@@ -79,7 +79,7 @@ def test_fiscal_years_fails_when_latest_does_not_reconcile():
         if r["start"] == "2022-07-01":
             r["val"] = 150
     r = _by(verify.fiscal_years(data), "fiscal_years", "revenue").set_index("period_end").loc[pd.Timestamp("2022-12-31")]
-    assert r["status"] == "fail" and "do not reconcile" in r["note"]
+    assert r["status"] == "fail" and "match no filed version" in r["note"]
 
 
 def test_fiscal_years_marks_construction():
@@ -270,3 +270,51 @@ def test_merge_earnings_tags_non_report_2_02():
     assert m.loc["2005-01-12", "kind"] == "report" and m.loc["2005-01-12", "eps_actual"] == 3.1
     assert m.loc["2001-04-17", "kind"] == "report"            # no Yahoo coverage then: keep it
     assert (m["kind"] == "report").sum() == 5                 # 3 matched + 2001 + Yahoo-only 2018-11-01 and 2005-04-13
+
+
+def test_fiscal_years_quarters_match_an_older_version_of_the_year():
+    # MSFT FY2016 net income ($M): Q1 4,620 and Q2 4,998 recast to 4,902 / 5,018 in Apr 2016; FY 16,798;
+    # the FY2018 10-K restated the year to 20,539 for ASC 606 without restating its quarters.
+    M = 1e6
+    ni = [F("2015-07-01", "2015-09-30", 4620 * M, "2015-10-22"), F("2015-07-01", "2015-09-30", 4902 * M, "2016-04-21"),
+          F("2015-10-01", "2015-12-31", 4998 * M, "2016-01-28"), F("2015-07-01", "2015-12-31", 9618 * M, "2016-01-28"),
+          F("2015-10-01", "2015-12-31", 5018 * M, "2016-04-21"),
+          F("2016-01-01", "2016-03-31", 3756 * M, "2016-04-21"), F("2015-07-01", "2016-03-31", 13676 * M, "2016-04-21"),
+          F("2016-04-01", "2016-06-30", 3122 * M, "2016-07-28", "10-K", "K16"),
+          F("2015-07-01", "2016-06-30", 16798 * M, "2016-07-28", "10-K", "K16"),
+          F("2015-07-01", "2016-06-30", 20539 * M, "2018-08-03", "10-K", "K18")]
+    data = {"facts": {"us-gaap": {"NetIncomeLoss": {"units": {"USD": ni}}}}}
+    r = _by(verify.fiscal_years(data), "fiscal_years", "net_income").iloc[0]
+    assert r["sec_value"] == 16496 * M and r["compare_value"] == 16798 * M
+    assert r["status"] == "warn" and "restatement mix" in r["note"] and "16,798M vs 16,798M" in r["note"]
+
+
+def test_shares_scale_error_and_late_rows():
+    M = 1e6
+    q = pd.DataFrame({"period_end": pd.to_datetime(["2011-06-30", "2012-06-30", "2012-09-30", "2012-12-31"]),
+                      "filed": pd.to_datetime(["2012-07-31", "2012-07-31", "2012-10-24", "2013-02-01"]),
+                      "shares": [1879 * M, 1879 * M, 548 * M, 550 * M],
+                      "shares_date": pd.to_datetime(["2012-07-31", "2012-07-31", "2012-10-24", "2013-02-01"]),
+                      "shares_filed": pd.to_datetime(["2012-07-31", "2012-07-31", "2012-10-24", "2013-02-01"])})
+    wds = [F("2012-04-01", "2012-06-30", 1879 * M, "2012-07-31"),
+           F("2012-07-01", "2012-09-30", 547_800, "2012-10-24"),                       # tagged in thousands
+           F("2012-10-01", "2012-12-31", 551 * M, "2013-02-01", "10-K")]
+    data = {"facts": {"us-gaap": {"WeightedAverageNumberOfDilutedSharesOutstanding": {"units": {"shares": wds}}}}}
+    sh = pd.DataFrame(verify.shares(data, q, None))
+    assert pd.Timestamp("2011-06-30") not in set(sh["period_end"].dropna())          # first filed a year late: skipped
+    r = sh[sh["period_end"] == pd.Timestamp("2012-09-30")].iloc[0]
+    assert r["status"] == "info" and "1,000x" in r["note"]
+    assert set(sh.loc[sh["check"] == "shares", "status"]) <= {"info", "warn"}
+
+
+def test_vs_yahoo_gap_explained_by_unusual_items():
+    # JPM Q2 2026 ($M): reported total net revenue 57,347; Yahoo total revenue 52,852; Yahoo unusual items 4,393
+    M = 1e6
+    rev = [F("2026-04-01", "2026-06-30", 57347 * M, "2026-08-06")]
+    data = {"facts": {"us-gaap": {"RevenuesNetOfInterestExpense": {"units": {"USD": rev}}}}}
+    y = pd.DataFrame({"metric": ["revenue", "unusual"], "period_end": pd.to_datetime(["2026-06-30"] * 2),
+                      "value": [52852 * M, 4393 * M]})
+    r = _by(verify.vs_yahoo(data, y), "yahoo", "revenue").iloc[0]
+    assert r["status"] == "warn" and "unusual items (4,393M)" in r["note"]
+    y.loc[1, "value"] = 1000 * M
+    assert _by(verify.vs_yahoo(data, y), "yahoo", "revenue").iloc[0]["status"] == "fail"

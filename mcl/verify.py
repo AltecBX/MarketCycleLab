@@ -71,7 +71,7 @@ def flow(data: dict, key: str, keep: str = "first") -> pd.DataFrame:
     return sec._first_available(data, sec.TAGS[key], partial(sec.discrete_quarters, keep=keep))
 
 
-def _annual_facts(data: dict, key: str, keep: str = "first") -> pd.DataFrame:
+def _annual_facts(data: dict, key: str) -> pd.DataFrame:
     parts = []
     for tag in sec.TAGS[key]:
         f = sec._facts(data, tag)
@@ -80,18 +80,20 @@ def _annual_facts(data: dict, key: str, keep: str = "first") -> pd.DataFrame:
         f = f.dropna(subset=["start"])
         f = f[f["form"].astype(str).str.match(r"^(10-K|20-F|40-F)") & (f["end"] - f["start"]).dt.days.between(350, 380)]
         if len(f):
-            parts.append(f.sort_values("filed").drop_duplicates(["start", "end"], keep=keep).assign(tag=tag))
+            parts.append(f.sort_values("filed").drop_duplicates(["start", "end"], keep="first").assign(tag=tag))
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 
 
-def _latest_reconciles(q_last: pd.DataFrame, fy_last: pd.DataFrame, start, end, tag) -> tuple[bool, float, float]:
-    """Do the latest-filed quarters add up to the latest-filed full year?"""
-    inq = q_last[(q_last["period_end"] > start) & (q_last["period_end"] <= end)]
-    g = fy_last[(fy_last["end"] == end) & (fy_last["start"] == start)]
-    g = g[g["tag"] == tag] if (g["tag"] == tag).any() else g
-    if len(inq) != 4 or g.empty:
-        return False, np.nan, np.nan
-    return _close(inq["val"].sum(), g["val"].iloc[0]), float(inq["val"].sum()), float(g["val"].iloc[0])
+def _fy_versions(data: dict, key: str, start, end) -> list[float]:
+    """Every value any 10-K filed for this fiscal year (restatements included), across the field's tags."""
+    vals = []
+    for tag in sec.TAGS[key]:
+        f = sec._facts(data, tag)
+        if f.empty or "start" not in f:
+            continue
+        f = f[(f["start"] == start) & (f["end"] == end) & f["form"].astype(str).str.match(r"^(10-K|20-F|40-F)")]
+        vals += f["val"].astype(float).tolist()
+    return vals
 
 
 def fiscal_years(data: dict, cik=None) -> list[dict]:
@@ -99,7 +101,7 @@ def fiscal_years(data: dict, cik=None) -> list[dict]:
     for key in FLOWS:
         q = flow(data, key)
         fy = _annual_facts(data, key)
-        q_last, fy_last = flow(data, key, "last"), _annual_facts(data, key, "last")
+        q_last = flow(data, key, "last")
         if q.empty or fy.empty:
             continue
         for end, g in fy.groupby("end", sort=True):
@@ -125,15 +127,18 @@ def fiscal_years(data: dict, cik=None) -> list[dict]:
             ok = _close(inq["val"].sum(), f["val"])
             status = "ok" if ok else ("fail" if key in HARD else "warn")
             if not ok:
-                rec, s_last, fy_l = _latest_reconciles(q_last, fy_last, g["start"].iloc[0], end, f["tag"])
-                if rec:
+                start = g["start"].iloc[0]
+                inl = q_last[(q_last["period_end"] > start) & (q_last["period_end"] <= end)]
+                sums = [float(inq["val"].sum())] + ([float(inl["val"].sum())] if len(inl) == 4 else [])
+                hit = next(((a, v) for a in sums for v in _fy_versions(data, key, start, end) if _close(a, v)), None)
+                if hit:
                     status = "warn"
-                    notes.append(f"restatement mix: the first-filed quarters straddle a restatement; latest filed values "
-                                 f"reconcile ({s_last / 1e6:,.0f}M vs {fy_l / 1e6:,.0f}M). Parser is fine; TTM rows that "
-                                 f"include these quarters mix old and new accounting until they roll off")
+                    notes.append(f"restatement mix: the first-filed quarters straddle a restatement; quarters add up to "
+                                 f"a filed version of the year ({hit[0] / 1e6:,.0f}M vs {hit[1] / 1e6:,.0f}M). Parser is "
+                                 f"fine; TTM rows with these quarters mix old and new accounting until they roll off")
                 else:
-                    notes.append("quarters do not reconcile even with latest filed values: likely a tag or "
-                                 "scope problem; open the filing")
+                    notes.append("quarters match no filed version of the year: likely a tag or scope problem; "
+                                 "open the filing")
             out.append(_row("fiscal_years", key, end, inq["val"].sum(), compare_to=f"10-K full year ({f['tag']})",
                             compare_value=f["val"], status=status, note="; ".join(notes), source=src))
     return out
@@ -160,6 +165,8 @@ def vs_yahoo(data: dict, ystm: pd.DataFrame, cik=None) -> list[dict]:
     out = []
     if ystm is None or ystm.empty:
         return out
+    un = ystm[ystm["metric"] == "unusual"]
+    unusual = dict(zip(un["period_end"], un["value"]))
     for key in FLOWS:
         ys = ystm[ystm["metric"] == key]
         if ys.empty:
@@ -186,6 +193,11 @@ def vs_yahoo(data: dict, ystm: pd.DataFrame, cik=None) -> list[dict]:
                 status, note = "ok", ""
             elif _close(last, yv):
                 status, note = "info", "matches the latest filed value; first filed value was later restated"
+            elif key == "revenue" and np.isfinite(unusual.get(r.period_end, np.nan)) and \
+                    abs((first - yv) - unusual[r.period_end]) <= 0.1 * abs(unusual[r.period_end]):
+                status = "warn"
+                note = (f"gap equals Yahoo's unusual items ({unusual[r.period_end] / 1e6:,.0f}M), which Yahoo leaves out "
+                        f"of revenue; the SEC value is the company's reported total")
             else:
                 status = "fail" if key in HARD else "warn"
                 note = ("derived quarter (from year-to-date values)" if bool(a.loc[i, "derived"]) else "reported quarter") \
@@ -230,6 +242,10 @@ def integrity(q: pd.DataFrame, cik=None) -> list[dict]:
         out.append(_row("integrity", "filed", q.loc[late[-1], "period_end"], status="info",
                         note=f"{len(late)} quarter(s) first filed 150+ days after period end (usually the first XBRL "
                              f"years, filed later as comparatives); they count only from that later date"))
+    if len(q) < 8:
+        out.append(_row("integrity", "periods", q["period_end"].iloc[-1], status="warn",
+                        note=f"only {len(q)} quarters: if the company recently moved under a new holding company "
+                             f"(new CIK, same ticker), add the old CIK to data/user/cik_predecessors.json"))
     if not out:
         out.append(_row("integrity", "all", q["period_end"].iloc[-1], status="ok",
                         note=f"{len(q)} quarters, {q['period_end'].iloc[0].date()} to {q['period_end'].iloc[-1].date()}"))
@@ -242,7 +258,13 @@ def shares(data: dict, q: pd.DataFrame, splits: pd.Series | None) -> list[dict]:
         return [_row("shares", "shares", status="warn", note="no share count: market cap and multiples unavailable")]
     q = q.dropna(subset=["shares"]).sort_values("period_end").reset_index(drop=True)
     cover = q["shares"].astype(float) * split_factor_after(q["shares_date"], splits)
-    w = sec.discrete_quarters(sec._facts(data, "WeightedAverageNumberOfDilutedSharesOutstanding", ("shares",)))
+    # rows first filed long after their quarter carry the count at that later filing: not comparable
+    late = (pd.to_datetime(q["filed"]) - pd.to_datetime(q["period_end"])).dt.days > 150
+    q, cover = q[~late].reset_index(drop=True), cover[~late].reset_index(drop=True)
+    if q.empty:
+        return [_row("shares", "shares", status="info", note="all share counts come from late first filings")]
+    # latest filed diluted counts: early filings sometimes carry scale errors that later filings correct
+    w = sec.discrete_quarters(sec._facts(data, "WeightedAverageNumberOfDilutedSharesOutstanding", ("shares",)), keep="last")
     w = w[~w["derived"].astype(bool)] if not w.empty else w
     if not w.empty:
         wm = w.set_index("period_end")
@@ -252,10 +274,12 @@ def shares(data: dict, q: pd.DataFrame, splits: pd.Series | None) -> list[dict]:
         ratio = cover / wadj
         bad = ratio[(ratio < 0.85) | (ratio > 1.15)].index
         for i in bad:
+            note = ("diluted shares look 1,000x too small: a units error in that filing's XBRL; the cover count is used"
+                    if 500 <= ratio[i] <= 2000 else
+                    "cover-page count differs from diluted shares by more than 15% (one share class only on the cover, "
+                    "a split, convertibles or options in diluted shares, or a large buyback/issue)")
             out.append(_row("shares", "shares", q.loc[i, "period_end"], cover[i], compare_to="diluted weighted shares",
-                            compare_value=wadj[i], status="warn",
-                            note="cover-page count differs from diluted shares by more than 15% "
-                                 "(partial class count for multi-class stock, a split, or a large buyback/issue)"))
+                            compare_value=wadj[i], status="info" if 500 <= ratio[i] <= 2000 else "warn", note=note))
     jump = cover.pct_change()
     for i in jump[jump.abs() > 0.2].index:
         out.append(_row("shares", "shares", q.loc[i, "period_end"], cover[i], compare_to="prior quarter",
@@ -336,10 +360,10 @@ def run(ticker: str, use_yahoo: bool = True) -> dict:
     from .data import yahoo
     tk = ticker.upper()
     notes = []
-    cik = sec.ticker_to_cik(tk)
-    if cik is None:
-        raise RuntimeError(f"No SEC CIK for {tk} (ETFs, indexes and many foreign listings have none)")
-    data = sec.companyfacts(cik)
+    cik, data = sec.company_data(tk)
+    preds = sec.predecessors(tk, cik)
+    if preds:
+        notes.append(f"history merged from predecessor CIK(s) {', '.join(map(str, preds))}")
     q = sec.quarterly_fundamentals(data)
     splits = ystm = ydates = None
     if use_yahoo:

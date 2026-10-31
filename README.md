@@ -82,12 +82,14 @@ Valuation uses quarters rebuilt from SEC XBRL facts. A quarter is the three mont
 
 | Check | What it compares | How to read it |
 |---|---|---|
-| fiscal_years | Q1+Q2+Q3+Q4 vs the 10-K full year value | A FAIL means Q1 to Q3 as first filed no longer add to the nine month total, usually a mid year recast. Rows marked "by construction" (cash flow, which is year to date only) cannot fail and prove little. |
-| yahoo | each quarter Yahoo shows vs the first filed and the latest filed SEC value | ok = first filed matches. info = only the restated value matches, expected. FAIL on revenue or net income = open the filing. Banks and insurers often differ by definition. |
+| fiscal_years | Q1+Q2+Q3+Q4 vs the 10-K full year value | WARN "restatement mix" = the first filed quarters straddle a restatement but add up to some filed version of the year; the parser is fine and TTM rows with those quarters mix old and new accounting until they roll off. FAIL = the quarters match no filed version of the year: open the filing. Rows marked "by construction" (cash flow, year to date only) cannot fail. |
+| yahoo | each quarter Yahoo shows vs the first filed and the latest filed SEC value | ok = first filed matches. info = only the restated value matches, expected. WARN when the revenue gap equals Yahoo's unusual items (Yahoo leaves one time gains out of revenue). FAIL on revenue or net income = open the filing. Definitions differ for banks (total net revenue) and for energy companies whose `Revenues` tag is total revenues and other income. |
 | restated | quarters changed in a later filing | Studies use the first value, which is what investors saw. Vendors show the latest. |
 | integrity | missing quarters, negative revenue, revenue 2x off its neighbors, late first filings | Gaps blank out TTM multiples for a year. |
-| shares | cover page shares vs diluted weighted shares, quarter to quarter jumps | A WARN near 0.3x to 0.6x usually means a multi class company where only one class is on the cover. Market cap and every multiple are off for those rows. |
+| shares | cover page shares vs latest filed diluted weighted shares, quarter to quarter jumps | A WARN near 0.3x to 0.6x usually means a multi class company where only one class is on the cover; market cap and every multiple are off for those rows. Convertibles can push diluted shares 15%+ above the cover count. A 1,000x gap is a units error in an old filing (info). |
 | earnings | 8-K Item 2.02 dates and before open / after close timing vs Yahoo | Low agreement means the acceptance time reading is wrong for that company. extra_8k rows are 2.02 filings with no report near them. |
+
+A ticker that moved under a new holding company gets a new SEC CIK with only a few quarters (`integrity` warns). Its history stays under the old CIK: add `{"TICKER": [old CIK]}` to `data/user/cik_predecessors.json` and the two are merged. XOM (ExxonMobil Holdings Corp, 2026) is built in.
 
 The spot check at the end of each ticker lists the last four quarters of revenue and net income with the filing folder link: open it, open the 10-Q or 10-K, and compare with the income statement. Tolerance is 0.5% or $2M, whichever is larger. The command exits with code 1 when any check has a FAIL.
 

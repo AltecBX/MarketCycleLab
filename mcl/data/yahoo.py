@@ -122,6 +122,7 @@ STATEMENT_ROWS = {
     "op_income": ["operatingincome"],
     "ocf": ["operatingcashflow", "cashflowfromcontinuingoperatingactivities"],
     "capex": ["capitalexpenditure"],
+    "unusual": ["totalunusualitems"],     # only used to explain revenue gaps
 }
 
 

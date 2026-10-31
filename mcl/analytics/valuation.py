@@ -89,7 +89,10 @@ def daily_multiples(close: pd.Series, t: pd.DataFrame) -> pd.DataFrame:
     px["date"] = pd.to_datetime(px["date"]).astype("datetime64[ns]")
     f = t.dropna(subset=["available"]).copy()
     f["available"] = pd.to_datetime(f["available"]).astype("datetime64[ns]")
-    f = f.sort_values("available")
+    # On equal dates use the newest quarter; a row that becomes usable after a newer quarter's row
+    # (a late first filing) never replaces it.
+    f = f.sort_values(["available", "period_end"], kind="mergesort")
+    f = f[f["period_end"] >= f["period_end"].cummax()]
     j = pd.merge_asof(px.sort_values("date"), f, left_on="date", right_on="available", direction="backward")
     j = j.set_index("date")
     out = pd.DataFrame(index=j.index)

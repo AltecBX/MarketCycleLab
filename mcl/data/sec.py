@@ -65,6 +65,45 @@ def ticker_to_cik(ticker: str) -> int | None:
     return m.get(ticker.upper().replace(".", "-")) or m.get(ticker.upper())
 
 
+# A holding-company reorganization moves the ticker to a new CIK while the history stays under the old one.
+# Verified: ExxonMobil Holdings Corp (CIK 2115436, first filing 2026-07-01, files 8-K12B as successor issuer)
+# continues Exxon Mobil Corp (CIK 34088); its Q2 2025 comparative revenue (81,506M) equals 34088's own filing.
+# Add others in data/user/cik_predecessors.json as {"TICKER": [predecessor CIKs]}.
+PREDECESSORS = {2115436: [34088]}
+
+
+def predecessors(ticker: str, cik: int | None) -> list[int]:
+    from ..config import USER_DIR
+    out = list(PREDECESSORS.get(cik, [])) if cik else []
+    p = USER_DIR / "cik_predecessors.json"
+    if p.exists():
+        out += [int(c) for c in json.loads(p.read_text()).get(ticker.upper(), []) if int(c) not in out]
+    return out
+
+
+def _merge_facts(a: dict, b: dict) -> dict:
+    """Union of two companyfacts payloads (facts lists concatenated per taxonomy, tag and unit)."""
+    out = {**a, "facts": {}}
+    for src in (a, b):
+        for tax, tags in src.get("facts", {}).items():
+            for tag, node in tags.items():
+                dst = out["facts"].setdefault(tax, {}).setdefault(tag, {"units": {}})
+                for unit, arr in node.get("units", {}).items():
+                    dst["units"].setdefault(unit, []).extend(arr)
+    return out
+
+
+def company_data(ticker: str) -> tuple[int, dict]:
+    """CIK and companyfacts for a ticker, merged with any predecessor CIKs."""
+    cik = ticker_to_cik(ticker)
+    if cik is None:
+        raise RuntimeError(f"No SEC CIK for {ticker} (ETFs, indexes and many foreign listings have none)")
+    data = companyfacts(cik)
+    for p in predecessors(ticker, cik):
+        data = _merge_facts(data, companyfacts(p))
+    return cik, data
+
+
 def companyfacts(cik: int, refresh_hours: float = 24.0) -> dict:
     key = f"facts_{cik:010d}"
     cached = store.load_json("sec", key, refresh_hours)
@@ -94,33 +133,70 @@ def _facts(data: dict, tag: str, unit_pref=("USD", "shares", "USD/shares"), taxo
     return df.dropna(subset=["end", "filed", "val"])
 
 
+def _drop_inconsistent_quarter_tables(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop three-month facts from a filing whose four quarters do not add up to that filing's own year.
+
+    10-Ks often tag an unaudited quarterly table. When it is mis-tagged, its Q4 would beat the correct
+    full-year-minus-nine-months value. Example: Amazon's FY2012 10-K tagged SalesRevenueNet quarters of
+    9,857 / 9,913 / 10,876 / 17,431 against a 61,093 year in the same filing (true Q4: 21,268).
+    """
+    if df.empty or "accn" not in df or "start" not in df:
+        return df
+    days = (df["end"] - df["start"]).dt.days
+    bad = pd.Series(False, index=df.index)
+    for _, g in df.groupby("accn"):
+        gd = days.loc[g.index]
+        qs = g[gd.between(*QUARTER_DAYS)]
+        if len(qs) < 4:
+            continue
+        for fy in g[gd.between(350, 380)].itertuples():
+            inq = qs[(qs["end"] > fy.start) & (qs["end"] <= fy.end)]
+            if len(inq) == 4 and inq["end"].nunique() == 4:
+                total, year = float(inq["val"].sum()), float(fy.val)
+                if abs(total - year) > max(0.005 * max(abs(total), abs(year)), 2e6):
+                    bad.loc[inq.index] = True
+    return df[~bad]
+
+
 def discrete_quarters(df: pd.DataFrame, keep: str = "first") -> pd.DataFrame:
     """Discrete ~90-day values from a mix of quarterly and cumulative duration facts.
 
-    Keeps the first filed value for each (start, end); keep="last" uses the
-    latest filed (restated) value instead, which is only for verification.
-    Returns columns period_end, val, filed, derived.
+    Candidates for each quarter: reported three-month values, and differences of
+    year-to-date values sharing a start date (dated with the later filing). One
+    value per quarter end: the earliest filed (keep="first", what investors first
+    saw; on the same date a reported value beats a derived one), or for
+    verification (keep="last") the latest reported value, derived only when the
+    quarter was never reported. Quarterly tables that do not add up to their own
+    filing's year are ignored.
+    Returns columns period_end, val, filed, derived, accn.
     """
     cols = ["period_end", "val", "filed", "derived", "accn"]
     if df.empty or "start" not in df:
         return pd.DataFrame(columns=cols)
-    d = df.dropna(subset=["start"]).sort_values("filed").drop_duplicates(["start", "end"], keep=keep).copy()
+    d = df.dropna(subset=["start"]).copy()
     if "accn" not in d:
         d["accn"] = ""
+    d = _drop_inconsistent_quarter_tables(d)
+    d = d.sort_values("filed").drop_duplicates(["start", "end"], keep=keep)
     d["days"] = (d["end"] - d["start"]).dt.days
-    direct = d[d["days"].between(*QUARTER_DAYS)]
-    rows = {r.end: (r.val, r.filed, False, r.accn) for r in direct.itertuples()}
-    for start, g in d[d["days"] >= QUARTER_DAYS[0]].groupby("start"):
+    cands = [(r.end, r.val, r.filed, False, r.accn) for r in d[d["days"].between(*QUARTER_DAYS)].itertuples()]
+    for _, g in d[d["days"] >= QUARTER_DAYS[0]].groupby("start"):
         g = g.sort_values("end")
         ends, vals, filed, accn = g["end"].tolist(), g["val"].tolist(), g["filed"].tolist(), g["accn"].tolist()
         for a in range(len(g)):
             for b in range(a + 1, len(g)):
-                gap = (ends[b] - ends[a]).days
-                if QUARTER_DAYS[0] <= gap <= QUARTER_DAYS[1] and ends[b] not in rows:
+                if QUARTER_DAYS[0] <= (ends[b] - ends[a]).days <= QUARTER_DAYS[1]:
                     later = b if filed[b] >= filed[a] else a
-                    rows[ends[b]] = (vals[b] - vals[a], max(filed[a], filed[b]), True, accn[later])
-    out = pd.DataFrame([(k, *v) for k, v in rows.items()], columns=cols).sort_values("period_end")
-    return out.reset_index(drop=True)
+                    cands.append((ends[b], vals[b] - vals[a], max(filed[a], filed[b]), True, accn[later]))
+    if not cands:
+        return pd.DataFrame(columns=cols)
+    out = pd.DataFrame(cands, columns=cols)
+    if keep == "first":   # earliest filed; same date: reported beats derived
+        out = out.sort_values(["period_end", "filed", "derived"], kind="mergesort")
+    else:                 # latest reported value; derived only when no quarter was reported (a derived Q4 from a
+        #                   restated year minus an unrestated 9 months would absorb the whole restatement)
+        out = out.sort_values(["period_end", "derived", "filed"], ascending=[True, True, False], kind="mergesort")
+    return out.drop_duplicates("period_end", keep="first").reset_index(drop=True)
 
 
 def instants(df: pd.DataFrame) -> pd.DataFrame:
@@ -202,17 +278,18 @@ def quarterly_fundamentals(data: dict) -> pd.DataFrame:
     return q.sort_values("period_end").reset_index(drop=True)
 
 
+FUNDAMENTALS_CACHE = "fundamentals_v2"   # v2: first-known quarter selection, quarterly-table check, predecessors
+
+
 def fundamentals(ticker: str) -> pd.DataFrame:
-    cached = store.load_frame("fundamentals", ticker, 24.0, parse_index=False)
+    cached = store.load_frame(FUNDAMENTALS_CACHE, ticker, 24.0, parse_index=False)
     if cached is not None:
         for c in [c for c in cached.columns if c.endswith("filed") or c in ("period_end", "shares_date")]:
             cached[c] = pd.to_datetime(cached[c], errors="coerce")
         return cached
-    cik = ticker_to_cik(ticker)
-    if cik is None:
-        raise RuntimeError(f"No SEC CIK for {ticker} (ETFs, indexes and many foreign listings have none)")
-    q = quarterly_fundamentals(companyfacts(cik))
-    store.save_frame(q, "fundamentals", ticker)
+    _, data = company_data(ticker)
+    q = quarterly_fundamentals(data)
+    store.save_frame(q, FUNDAMENTALS_CACHE, ticker)
     return q
 
 
@@ -237,13 +314,15 @@ def earnings_releases(ticker: str, refresh_hours: float = 24.0) -> pd.DataFrame:
     cik = ticker_to_cik(ticker)
     if cik is None:
         return pd.DataFrame(columns=["date", "accepted", "timing"])
-    sub = _get(f"https://data.sec.gov/submissions/CIK{cik:010d}.json")
-    blocks = [sub.get("filings", {}).get("recent", {})]
-    for f in sub.get("filings", {}).get("files", []):
-        try:
-            blocks.append(_get(f"https://data.sec.gov/submissions/{f['name']}"))
-        except Exception:
-            pass
+    blocks = []
+    for c in [cik] + predecessors(ticker, cik):
+        sub = _get(f"https://data.sec.gov/submissions/CIK{c:010d}.json")
+        blocks.append(sub.get("filings", {}).get("recent", {}))
+        for f in sub.get("filings", {}).get("files", []):
+            try:
+                blocks.append(_get(f"https://data.sec.gov/submissions/{f['name']}"))
+            except Exception:
+                pass
     rows = []
     for b in blocks:
         n = len(b.get("form", []))
