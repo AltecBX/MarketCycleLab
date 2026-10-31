@@ -5,6 +5,6 @@ reports/scan_*.csv
 __pycache__/
 .pytest_cache/
 reports/verify_*.csv
-data/user/holdings*.csv
-data/user/position*.csv
-reports/holdings_*.md
+data/user/holdings*
+data/user/position*
+reports/holdings_*
