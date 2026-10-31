@@ -225,6 +225,11 @@ Can be implemented immediately: everything in phases 1 and 2. Requires more data
 
 Everything in this MVP runs on free data that the system already verifies. None of it says what to do; it shows the position, the comparables and the prices of each choice.
 
+**Status (built, `mcl/holdings.py`, `mcl/options.py`, `mcl/analytics/streaks.py`):**
+* Input is a CSV, not the JSON above: `data/user/holdings.csv` (ticker, shares, cost, optional option_income, acquired, willing_to_sell) or a CSV download of the Position sheet (`--position-csv`). Budget and window are flags (`--giveback`, `--window`), one setting for all positions.
+* Built: position, giveback budget and floor price, recovery view with past drawdowns of the same depth, next report date, past one night reactions and whether a 1 in 10 bad night uses the budget room, 20/50/200 day streaks with baseline, portfolio exposure, option panel (adds a 0.20 delta call), qualified covered call test checked against the verbatim text of 1092(c)(4)(D)(i) to (iv).
+* Not built yet: lead in pattern per fiscal quarter on the card, valuation percentile on the card, tax term per lot (needs purchase dates), open option contracts (needs a positions export with contracts), per position budgets, alert cards.
+
 ## 7. Tax rules that shape protection choices
 
 Statutory text retrieved from the U.S. Code (links below). Treasury Regulations were not retrievable in this session, so regulation level details (for example how assignment folds the premium into the sale price) are marked "to confirm". This is information, not tax advice; confirm with a tax professional before acting.
@@ -366,6 +371,7 @@ Yahoo lists the next report on 2027-02-15 (an estimate, no time).
 
 ## 9. Open questions for the user
 
-* Holdings file contents (tickers, lots, basis, dates) and the giveback budget (share of peak profit, window).
+* Purchase dates per lot (tax term) and open option contracts (strike, expiry, contracts); the Position sheet has neither.
+* The giveback budget (share of peak profit, window); 25% over 63 sessions is a placeholder default.
 * Willingness to sell per holding (sets call coverage and strikes).
 * Whether to pay for any data: consensus history (expectations, revisions), option history (exact backtests), industry pricing (memory cycle). Each unlocks a specific part of the plan; none is needed for the MVP.

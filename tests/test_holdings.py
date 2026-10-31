@@ -165,3 +165,36 @@ def test_run_offline(monkeypatch, tmp_path):
         assert f"### {t}" in text
     assert "Giveback" in text or "Recovery" in text
     assert "Past reactions" in text
+
+
+def test_stress_window_names_the_late_listing():
+    idx = pd.bdate_range("2023-01-02", periods=600)
+    a = pd.Series(np.linspace(100, 160, 600), index=idx)
+    b = pd.Series(np.r_[np.full(400, np.nan), np.linspace(50, 40, 200)], index=idx)
+    closes = pd.DataFrame({"AAA": a, "NEW": b})
+    cards = [{"ticker": t, "shares": 100, "price": float(closes[t].iloc[-1]), "value": 100 * float(closes[t].iloc[-1]),
+              "cost": 1.0, "unrealized": 0.0, "option_income": 0.0, "earnings": {}} for t in ("AAA", "NEW")]
+    s = holdings.portfolio(cards, closes, None, None, lookback=504)["stress"]
+    assert s["limited_by"] == "NEW" and s["start"] == idx[400]
+    s = holdings.portfolio(cards, closes[["AAA"]], None, None, lookback=504)["stress"]
+    assert s["limited_by"] is None and s["start"] == idx[-504]
+
+
+@pytest.mark.parametrize("now,want", [("2026-10-31 12:00", "2026-11-02"),    # Saturday: next Monday
+                                      ("2026-10-30 10:00", "2026-10-30"),    # Friday morning: same day
+                                      ("2026-10-30 16:30", "2026-11-02"),    # Friday after the close: Monday
+                                      ("2026-11-02 09:00", "2026-11-02")])
+def test_grant_date(now, want):
+    assert options.grant_date(pd.Timestamp(now, tz="America/New_York")) == pd.Timestamp(want)
+
+
+def test_option_panel_counts_days_from_grant(monkeypatch):
+    calls, puts = chain_fixture()
+    monkeypatch.setattr(options, "expirations", lambda t: ["2026-12-04", "2026-12-18"])
+    monkeypatch.setattr(options, "chain", lambda t, e: (calls, puts))
+    idx = pd.bdate_range("2026-01-02", "2026-10-30")
+    close = pd.Series(100.0, index=idx)
+    card = {"price": 100.0, "shares": 200, "as_of": idx[-1], "earnings": {"next_date": None}}
+    text = holdings.option_panel("XYZ", card, close, grant=pd.Timestamp("2026-11-02"))
+    assert "2026-12-04 (32 days)" in text                     # from Monday 11/2, not Friday 10/30 (35)
+    assert "2026-10-30 close $100.00" in text

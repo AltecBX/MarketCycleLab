@@ -9,10 +9,15 @@ Tax notes (US federal; information, not advice; statute citations in SYSTEM_PLAN
 * A call is a qualified covered call only if exchange traded, written more than
   30 days before expiration, and not deep in the money (IRC 1092(c)(4)). Deep in
   the money means a strike below the lowest qualified benchmark (LQB): the highest
-  listed strike below the applicable stock price (the prior close), with special
-  rules in 1092(c)(4)(D)(ii) to (iv), implemented in `lowest_qualified_benchmark`.
-* A qualified call struck below the prior close suspends the stock's holding
-  period while it is open (1092(f)).
+  listed strike below the applicable stock price, with special rules in
+  1092(c)(4)(D)(ii) to (iv), implemented in `lowest_qualified_benchmark` and checked
+  against the statute text. The applicable stock price is the close on the last
+  trading day before the call is written, or that day's open if it is more than
+  110% of that close (1092(c)(4)(G)); the panel cannot know the open, so it uses
+  the prior close and says so. Days are counted from the day the call is written.
+* A qualified call struck below the applicable stock price suspends the stock's
+  holding period while it is open, and a loss on it is long term if a gain on the
+  stock would be (1092(f)).
 * Premium on a call that expires or is bought back is short term gain or loss (1234(b)).
 """
 from __future__ import annotations
@@ -76,6 +81,16 @@ def qualified_covered_call(strikes, applicable_price: float, days_to_expiry: int
     if qualified and strike < applicable_price:
         notes.append("qualified but in the money: the stock's holding period stops while the call is open")
     return {"qualified": qualified, "lqb": lqb, "deep_itm": deep, "notes": notes}
+
+
+def grant_date(now: pd.Timestamp | None = None) -> pd.Timestamp:
+    """Day a call written now would be granted: today on a weekday before 4:00pm New York time,
+    otherwise the next weekday (exchange holidays are not modeled)."""
+    now = pd.Timestamp.now(tz="America/New_York") if now is None else pd.Timestamp(now)
+    d = now.tz_localize(None).normalize() if now.tzinfo else now.normalize()
+    if d.weekday() < 5 and now.hour < 16:
+        return d
+    return d + pd.offsets.BDay(1)
 
 
 def mid_price(row) -> tuple[float, bool]:

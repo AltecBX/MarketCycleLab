@@ -243,7 +243,9 @@ def portfolio(cards: list[dict], closes: pd.DataFrame, spy: pd.Series | None, sm
         out["stress"] = {"start": pv.index[0], "end": pv.index[-1], "worst_day": float(r1.min()), "worst_day_date": r1.idxmin(),
                          "worst_20": float(r20.min()), "worst_20_end": r20.idxmin(),
                          "max_drawdown": float((pv / pv.cummax() - 1).min()),
-                         "names": int(px.shape[1])}
+                         "names": int(px.shape[1]),
+                         "limited_by": (px.apply(lambda c: c.first_valid_index()).idxmax()
+                                        if pv.index[0] > px.index[0] else None)}
     # betas and downside co-movement
     rets = closes.pct_change().tail(252)
     betas = {}
@@ -340,7 +342,8 @@ def render_card(c: dict) -> str:
             continue
         h = s.get("h5", {})
         rare = s.get("share_reaching_today")
-        line = (f"* {n} day average: {s['side']} for {s['streak']} sessions, {_pct(s['distance_pct'] / 100)} from it")
+        line = (f"* {n} day average: {s['side']} for {s['streak']} session{'s' if s['streak'] != 1 else ''}, "
+                f"{_pct(s['distance_pct'] / 100)} from it")
         if rare is not None and np.isfinite(rare):
             line += f"; {_pct(rare, 0, False)} of past {s['side']} streaks lasted this long (max {s['max_len']})"
         if h.get("n", 0) >= 10:
@@ -366,7 +369,8 @@ def render_portfolio(p: dict, budget: float, window: int) -> str:
                  ", ".join(f"{t} {pd.Timestamp(d).date()}" for t, d, _, _ in p["earnings_next_10"]))
     s = p.get("stress")
     if s:
-        L.append(f"* Today's shares of all {s['names']} names, held from {s['start'].date()} (first date all have prices) to "
+        why = (f"first date {s['limited_by']} has prices" if s.get("limited_by") else "2 year lookback")
+        L.append(f"* Today's shares of all {s['names']} names, held from {s['start'].date()} ({why}) to "
                  f"{s['end'].date()}: worst day {_pct(s['worst_day'])} ({s['worst_day_date'].date()}), worst 20 sessions "
                  f"{_pct(s['worst_20'])} (to {s['worst_20_end'].date()}), largest drawdown {_pct(s['max_drawdown'])}")
     if "scenario_market_minus10" in p:
@@ -379,10 +383,10 @@ def render_portfolio(p: dict, budget: float, window: int) -> str:
 
 
 def render_options(ticker: str, S: float, shares: float, expiry: str, days: int, st: pd.DataFrame,
-                   pay: pd.DataFrame, nd: pd.DataFrame) -> str:
+                   pay: pd.DataFrame, nd: pd.DataFrame, note: str = "") -> str:
     L = [f"#### {ticker} options expiring {expiry} ({days} days); stock {_usd(S, 2)}; {int(shares)} shares",
          "Covered calls are written against shares already owned. Prices are bid/ask midpoints from Yahoo "
-         "(\"last trade\" where no live quote). Before expiration values are model estimates."]
+         "(\"last trade\" where no live quote). Before expiration values are model estimates. " + note]
     cc = st[st["strategy"] == "covered call"]
     if len(cc):
         L.append("| Call | Strike | Coverage | Contracts | Premium | Of which time value | Sale price if assigned | "
@@ -416,7 +420,7 @@ def render_options(ticker: str, S: float, shares: float, expiry: str, days: int,
     return "\n".join(L)
 
 
-def option_panel(ticker: str, card: dict) -> str:
+def option_panel(ticker: str, card: dict, close: pd.Series | None = None, grant: pd.Timestamp | None = None) -> str:
     from . import options as op
     S, shares = card["price"], card["shares"]
     if shares < 100:
@@ -427,21 +431,30 @@ def option_panel(ticker: str, card: dict) -> str:
         return f"#### {ticker}: option chain unavailable ({e})"
     if not exps:
         return f"#### {ticker}: no listed options"
-    today = pd.Timestamp(card["as_of"])
+    grant = op.grant_date() if grant is None else pd.Timestamp(grant)
+    prior, prior_date = S, pd.Timestamp(card["as_of"])
+    if close is not None:
+        before = close.dropna()
+        before = before[before.index < grant]
+        if len(before):
+            prior, prior_date = float(before.iloc[-1]), before.index[-1]
+    note = (f"Days are counted from {grant.date()}, the day a call written now would be granted. The qualified covered "
+            f"call test uses the {prior_date.date()} close {_usd(prior, 2)}; if the stock opens more than 10% above it, "
+            f"that day's open applies instead (IRC 1092(c)(4)(G)).")
     out = []
-    for ex in op.pick_expirations(exps, today, card["earnings"].get("next_date")):
+    for ex in op.pick_expirations(exps, grant, card["earnings"].get("next_date")):
         try:
             calls, puts = op.chain(ticker, ex)
         except Exception as e:
             out.append(f"#### {ticker} {ex}: chain unavailable ({e})")
             continue
-        days = int((pd.Timestamp(ex) - today).days)
-        st = op.strategies(S, S, int(shares), calls, puts, days)
+        days = int((pd.Timestamp(ex) - grant).days)
+        st = op.strategies(S, prior, int(shares), calls, puts, days)
         if st.empty:
             continue
         pay = op.payoff_at_expiry(S, int(shares), st)
         nd = op.next_day_estimate(S, int(shares), st, days)
-        out.append(render_options(ticker, S, shares, ex, days, st, pay, nd))
+        out.append(render_options(ticker, S, shares, ex, days, st, pay, nd, note))
     return "\n\n".join(out) if out else f"#### {ticker}: no usable expirations"
 
 
@@ -510,5 +523,5 @@ def run(path: str | Path | None = None, position_csv: str | Path | None = None, 
     for c in sorted(cards, key=lambda c: -c["value"]):
         parts.append(render_card(c))
         if with_options:
-            parts.append(option_panel(c["ticker"], c))
+            parts.append(option_panel(c["ticker"], c, data[c["ticker"]]["prices"]["close"]))
     return "\n\n".join(parts)

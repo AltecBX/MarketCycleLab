@@ -64,6 +64,12 @@ Long run S&P 500 study (no API keys needed):
 python -m mcl market
 ```
 
+Holdings monitor (giveback budget, recovery view, earnings gap risk, average streaks, portfolio exposure; details below):
+
+```bash
+python -m mcl holdings --position-csv data/user/position.csv
+```
+
 Check the SEC fundamentals before trusting a valuation study (details below):
 
 ```bash
@@ -75,6 +81,20 @@ Tests:
 ```bash
 python -m pytest -q
 ```
+
+## Holdings monitor
+
+Input, either one (both are git ignored, as are the `reports/holdings_*.md` outputs):
+* `data/user/holdings.csv` with columns `ticker,shares,cost` and optional `option_income,acquired,willing_to_sell`.
+* A CSV download of the Position sheet (Google Sheets: File, Download, Comma separated values, with the Position tab open), saved as `data/user/position.csv` and passed with `--position-csv`. Row 1 holds tickers up to the "Total" column; rows "Quantity", "Price Paid" and "Option Profit" are read by their labels in column A. Positions with 0 shares are skipped.
+
+```bash
+python -m mcl holdings --position-csv data/user/position.csv
+python -m mcl holdings AAPL MU --position-csv data/user/position.csv --options
+python -m mcl holdings --giveback 0.20 --window 42
+```
+
+Each card shows the position, the giveback budget (default 25% of the peak unrealized gain over 63 sessions) and the price where it runs out, a recovery view for positions below cost, the next report date and the stock's past one night reactions, and 20/50/200 day average streaks next to the baseline for all days on the same side. The portfolio section shows earnings clustering, a stress replay with today's shares, betas with two linear scenarios, and pairs that fell together on SPY down days. `--options` adds today's chain for the expirations around the next report: covered calls (0.20 delta, 5/10/15% out of the money, 10% in the money), a 10% out of the money put and a collar, at 25/50/100% coverage, with payoffs at expiration, next day estimates and qualified covered call flags (IRC 1092(c)(4)). Streak, recovery and reaction numbers are historical associations with counts, not predictions.
 
 ## Verifying SEC fundamentals
 
@@ -141,6 +161,8 @@ mcl/data        yahoo, sec, macro, universe, loader, demo (synthetic), store (ca
 mcl/report      charts (plotly), html (single file report)
 mcl/study.py    runs every study for one ticker; used by dashboard, report and CLI
 mcl/verify.py   SEC fundamentals checks (python -m mcl verify)
+mcl/holdings.py holdings monitor (python -m mcl holdings)
+mcl/options.py  covered call, put and collar payoffs; qualified covered call test
 mcl/doctor.py   live data preflight (python -m mcl doctor)
 app/            Streamlit dashboard
 scripts/        case_study_facts.py (verified facts for case studies)
