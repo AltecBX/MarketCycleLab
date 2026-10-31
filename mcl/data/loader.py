@@ -40,9 +40,13 @@ class Bundle:
 
     @property
     def past_earnings(self) -> pd.DataFrame | None:
+        """Quarterly reports up to the last bar; 8-K 2.02 filings that are not reports are left out."""
         if self.earnings is None or self.earnings.empty:
             return None
-        return self.earnings[pd.to_datetime(self.earnings["date"]) <= self.prices.index[-1]]
+        e = self.earnings[pd.to_datetime(self.earnings["date"]) <= self.prices.index[-1]]
+        if "kind" in e:
+            e = e[e["kind"].fillna("report") == "report"]
+        return e
 
 
 def user_prices(ticker: str) -> pd.DataFrame | None:

@@ -64,10 +64,22 @@ def _by(rows, check, metric=None):
 def test_fiscal_years_flags_mid_year_recast():
     fy = _by(verify.fiscal_years(facts(), cik=1), "fiscal_years", "revenue").set_index("period_end")
     assert fy.loc[pd.Timestamp("2022-12-31"), "status"] == "ok"
-    # 140 + 150 + 160 + (610 - 440) = 620 vs 610 in the 10-K
+    # 140 + 150 + 160 + (610 - 440) = 620 vs 610 in the 10-K; latest values 130+150+160+170 = 610 reconcile
     r = fy.loc[pd.Timestamp("2023-12-31")]
-    assert r["status"] == "fail" and r["sec_value"] == 620 and r["compare_value"] == 610
+    assert r["status"] == "warn" and r["sec_value"] == 620 and r["compare_value"] == 610
+    assert "restatement mix" in r["note"]
     assert r["source"].endswith("/1/K23/")
+
+
+def test_fiscal_years_fails_when_latest_does_not_reconcile():
+    data = facts()
+    rev = data["facts"]["us-gaap"]["Revenues"]["units"]["USD"]
+    # an inconsistent filing: Q3 three-month value 150, but 9M - H1 = 120, never corrected
+    for r in rev:
+        if r["start"] == "2022-07-01":
+            r["val"] = 150
+    r = _by(verify.fiscal_years(data), "fiscal_years", "revenue").set_index("period_end").loc[pd.Timestamp("2022-12-31")]
+    assert r["status"] == "fail" and "do not reconcile" in r["note"]
 
 
 def test_fiscal_years_marks_construction():
@@ -156,9 +168,12 @@ def test_8k_dated_by_acceptance(monkeypatch, tmp_path):
     monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
     monkeypatch.setattr(sec, "ticker_to_cik", lambda t: 1)
     sub = {"filings": {"recent": {
-        "form": ["8-K", "8-K", "10-Q"], "items": ["2.02,9.01", "2.02", ""],
-        "filingDate": ["2024-05-02", "2024-07-25", "2024-05-03"],
-        "acceptanceDateTime": ["2024-05-01T18:10:00.000Z", "2024-07-25T07:01:00.000Z", "2024-05-03T10:00:00.000Z"]},
+        "form": ["8-K", "8-K", "8-K", "8-K", "10-Q"], "items": ["2.02,9.01", "2.02", "2.02", "2.02", ""],
+        "filingDate": ["2024-05-02", "2024-07-25", "2024-10-31", "2025-01-15", "2024-05-03"],
+        # feed times are UTC: 22:10Z = 18:10 EDT, 11:01Z = 07:01 EDT, 00:30Z = 20:30 EDT the day before,
+        # 11:46Z in January = 06:46 EST (JPMorgan's usual pre-market stamp)
+        "acceptanceDateTime": ["2024-05-01T22:10:00.000Z", "2024-07-25T11:01:00.000Z", "2024-10-31T00:30:00.000Z",
+                               "2025-01-15T11:46:01.000Z", "2024-05-03T14:00:00.000Z"]},
         "files": []}}
     monkeypatch.setattr(sec, "_get", lambda url: sub)
     e = sec.earnings_releases("X").set_index("date")
@@ -166,7 +181,9 @@ def test_8k_dated_by_acceptance(monkeypatch, tmp_path):
     assert e.loc["2024-05-01", "timing"] == "amc"
     assert pd.Timestamp(e.loc["2024-05-01", "filing_date"]) == pd.Timestamp("2024-05-02")
     assert e.loc["2024-07-25", "timing"] == "bmo"
-    assert len(e) == 2
+    assert e.loc["2024-10-30", "timing"] == "amc"                   # UTC date is Oct 31, Eastern is Oct 30
+    assert e.loc["2025-01-15", "timing"] == "bmo" and e.loc["2025-01-15", "accepted"] == "2025-01-15 06:46:01"
+    assert len(e) == 4
 
 
 def test_http_certifi_fallback_and_404(monkeypatch):
@@ -220,7 +237,8 @@ def test_cli_verify_end_to_end(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(yahoo, "earnings_dates", lambda t: pd.DataFrame(columns=["date", "timestamp", "timing"]))
     code = cli.main(["verify", "TEST"])
     out = capsys.readouterr().out
-    assert code == 1                                         # the FY2023 recast is a FAIL
+    assert code == 0                                         # the FY2023 recast is a restatement mix: WARN, not FAIL
+    assert "restatement mix" in pd.read_csv(tmp_path / "verify_TEST.csv")["note"].fillna("").str.cat()
     assert "fiscal_years" in out and "spot check" in out
     rows = pd.read_csv(tmp_path / "verify_TEST.csv")
     assert {"fiscal_years", "yahoo", "restated", "integrity", "shares", "earnings"} <= set(rows["check"])
@@ -236,3 +254,19 @@ def test_integrity_outlier_ignores_seasonality():
     flagged = pd.DataFrame(verify.integrity(q))
     flagged = flagged[flagged["metric"] == "revenue"]
     assert list(flagged["period_end"]) == [qe[13]]
+
+
+def test_merge_earnings_tags_non_report_2_02():
+    s = pd.DataFrame({"date": pd.to_datetime(["2019-01-02", "2019-01-29", "2005-01-11", "2005-01-12", "2001-04-17"]),
+                      "accepted": "x", "timing": ["amc", "amc", "dmh", "amc", "amc"]})
+    y = pd.DataFrame({"date": pd.to_datetime(["2018-11-01", "2019-01-29", "2005-01-12", "2005-04-13"]),
+                      "timestamp": "t", "timing": "amc", "eps_estimate": [1.0, 2.0, 3.0, 4.0],
+                      "eps_actual": [1.1, 2.1, 3.1, 4.1]})
+    m = sec.merge_earnings(s, y).set_index("date")
+    assert m.loc["2019-01-02", "kind"] == "other_2.02"        # guidance cut between two covered reports
+    assert m.loc["2019-01-29", "kind"] == "report" and m.loc["2019-01-29", "eps_actual"] == 2.1
+    assert m.loc["2005-01-11", "kind"] == "other_2.02"        # same Yahoo report as 2005-01-12, farther away
+    assert np.isnan(m.loc["2005-01-11", "eps_actual"]) and m.loc["2005-01-11", "timing"] == "dmh"   # SEC timing kept
+    assert m.loc["2005-01-12", "kind"] == "report" and m.loc["2005-01-12", "eps_actual"] == 3.1
+    assert m.loc["2001-04-17", "kind"] == "report"            # no Yahoo coverage then: keep it
+    assert (m["kind"] == "report").sum() == 5                 # 3 matched + 2001 + Yahoo-only 2018-11-01 and 2005-04-13

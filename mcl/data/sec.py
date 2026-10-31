@@ -13,11 +13,11 @@ derived quarter is dated with the later filing.
 
 Earnings release dates: 8-K filings with Item 2.02 (Results of Operations).
 The acceptance time indicates before-open or after-close. The submissions
-feed labels that time with a 'Z' suffix but is treated here as US Eastern
-clock time (an after-close 8-K shows about 16:30). `python -m mcl verify`
-checks that assumption against Yahoo's report times for each ticker.
-The event is dated by acceptance, not filingDate: EDGAR gives anything
-accepted after 17:30 ET the next business day's filingDate.
+feed gives it in UTC (the 'Z' is real): JPMorgan's pre-market 8-Ks are
+stamped about 10:45 in summer and 11:45 in winter, which is 06:45 US Eastern
+year round. It is converted to US Eastern before dating and classifying.
+The event is dated by the Eastern acceptance day, not filingDate: EDGAR
+gives anything accepted after 17:30 ET the next business day's filingDate.
 """
 from __future__ import annotations
 
@@ -216,10 +216,21 @@ def fundamentals(ticker: str) -> pd.DataFrame:
     return q
 
 
+EARNINGS_CACHE = "earnings_sec_v2"   # v2: acceptance times converted from UTC to US Eastern
+
+
+def _eastern(acceptance: str) -> pd.Timestamp:
+    """EDGAR acceptanceDateTime (UTC, e.g. 2024-07-12T10:46:30.000Z) as naive US Eastern time."""
+    ts = pd.Timestamp(acceptance)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    return ts.tz_convert("America/New_York").tz_localize(None)
+
+
 def earnings_releases(ticker: str, refresh_hours: float = 24.0) -> pd.DataFrame:
-    """8-K Item 2.02 filings: date, acceptance time and before/after-market timing."""
+    """8-K Item 2.02 filings: date and acceptance time (US Eastern), before/after-market timing."""
     from ..analytics.earnings import classify_timing
-    cached = store.load_frame("earnings_sec", ticker, refresh_hours, parse_index=False)
+    cached = store.load_frame(EARNINGS_CACHE, ticker, refresh_hours, parse_index=False)
     if cached is not None:
         cached["date"] = pd.to_datetime(cached["date"])
         return cached
@@ -239,15 +250,15 @@ def earnings_releases(ticker: str, refresh_hours: float = 24.0) -> pd.DataFrame:
         for i in range(n):
             if b["form"][i] != "8-K" or "2.02" not in str(b.get("items", [""] * n)[i]):
                 continue
-            acc = str(b.get("acceptanceDateTime", [""] * n)[i]).replace("Z", "").replace(".000", "")
-            ts = pd.Timestamp(acc) if acc else pd.Timestamp(b["filingDate"][i])
+            acc = str(b.get("acceptanceDateTime", [""] * n)[i])
+            ts = _eastern(acc) if acc else pd.Timestamp(b["filingDate"][i])
             # EDGAR gives anything accepted after 17:30 ET the next business day's filingDate.
             # The release went out on the acceptance day, so date the event by acceptance.
             rows.append({"date": ts.normalize(), "filing_date": pd.Timestamp(b["filingDate"][i]), "accepted": str(ts),
                          "timing": classify_timing(ts) if acc else "unknown"})
     out = pd.DataFrame(rows).drop_duplicates("date").sort_values("date").reset_index(drop=True) if rows else \
         pd.DataFrame(columns=["date", "accepted", "timing"])
-    store.save_frame(out, "earnings_sec", ticker)
+    store.save_frame(out, EARNINGS_CACHE, ticker)
     return out
 
 
@@ -269,6 +280,20 @@ def merge_earnings(sec_dates: pd.DataFrame, yahoo: pd.DataFrame, tolerance_days:
     y["y_date"] = y["date"]
     j = pd.merge_asof(s, y.drop(columns=["timing"], errors="ignore"), on="date", direction="nearest",
                       tolerance=pd.Timedelta(days=tolerance_days))
-    extra = y[~y["y_date"].isin(j["y_date"].dropna())]
+    # Item 2.02 also covers pre-announcements, guidance cuts and conference updates. Where Yahoo covers the
+    # period (a report within 60 days) and none is within tolerance, the filing is not a quarterly report.
+    # Two filings matching one Yahoo report: the closer one is the report.
+    j["kind"] = "report"
+    dist = (j["date"] - j["y_date"]).abs()
+    dup = j["y_date"].notna() & j.duplicated("y_date", keep=False)
+    if dup.any():
+        best = dist[dup].groupby(j.loc[dup, "y_date"]).idxmin()
+        j.loc[dup & ~j.index.isin(best.to_numpy()), "kind"] = "other_2.02"
+        yahoo_cols = [c for c in y.columns if c not in ("date", "y_date", "timing")]   # timing here is SEC's
+        j.loc[j["kind"] == "other_2.02", yahoo_cols] = np.nan
+    nomatch = j["y_date"].isna()
+    covered = [bool(((y["date"] - d).abs() <= pd.Timedelta(days=60)).any()) for d in j.loc[nomatch, "date"]]
+    j.loc[nomatch, "kind"] = np.where(covered, "other_2.02", "report")
+    extra = y[~y["y_date"].isin(j.loc[j["kind"] == "report", "y_date"].dropna())].assign(kind="report")
     out = pd.concat([j, extra], ignore_index=True).sort_values("date").reset_index(drop=True)
     return out.drop(columns=["y_date"], errors="ignore")

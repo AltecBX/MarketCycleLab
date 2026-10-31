@@ -20,8 +20,8 @@ confirmed by hand in the 10-Q or 10-K.
                  (catches partial multi-class counts and split errors) and
                  quarter-to-quarter jumps.
 6. earnings      8-K Item 2.02 dates and before-open / after-close timing vs
-                 Yahoo's report times. Tests the Eastern-time reading of the SEC
-                 acceptance stamp and finds 2.02 filings that are not earnings.
+                 Yahoo's report times (SEC acceptance converted from UTC to Eastern),
+                 and 2.02 filings with no report near them.
 
 Row status: ok, info (explained difference), warn (look at it), fail (wrong number).
 """
@@ -71,7 +71,7 @@ def flow(data: dict, key: str, keep: str = "first") -> pd.DataFrame:
     return sec._first_available(data, sec.TAGS[key], partial(sec.discrete_quarters, keep=keep))
 
 
-def _annual_facts(data: dict, key: str) -> pd.DataFrame:
+def _annual_facts(data: dict, key: str, keep: str = "first") -> pd.DataFrame:
     parts = []
     for tag in sec.TAGS[key]:
         f = sec._facts(data, tag)
@@ -80,8 +80,18 @@ def _annual_facts(data: dict, key: str) -> pd.DataFrame:
         f = f.dropna(subset=["start"])
         f = f[f["form"].astype(str).str.match(r"^(10-K|20-F|40-F)") & (f["end"] - f["start"]).dt.days.between(350, 380)]
         if len(f):
-            parts.append(f.sort_values("filed").drop_duplicates(["start", "end"], keep="first").assign(tag=tag))
+            parts.append(f.sort_values("filed").drop_duplicates(["start", "end"], keep=keep).assign(tag=tag))
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
+
+
+def _latest_reconciles(q_last: pd.DataFrame, fy_last: pd.DataFrame, start, end, tag) -> tuple[bool, float, float]:
+    """Do the latest-filed quarters add up to the latest-filed full year?"""
+    inq = q_last[(q_last["period_end"] > start) & (q_last["period_end"] <= end)]
+    g = fy_last[(fy_last["end"] == end) & (fy_last["start"] == start)]
+    g = g[g["tag"] == tag] if (g["tag"] == tag).any() else g
+    if len(inq) != 4 or g.empty:
+        return False, np.nan, np.nan
+    return _close(inq["val"].sum(), g["val"].iloc[0]), float(inq["val"].sum()), float(g["val"].iloc[0])
 
 
 def fiscal_years(data: dict, cik=None) -> list[dict]:
@@ -89,6 +99,7 @@ def fiscal_years(data: dict, cik=None) -> list[dict]:
     for key in FLOWS:
         q = flow(data, key)
         fy = _annual_facts(data, key)
+        q_last, fy_last = flow(data, key, "last"), _annual_facts(data, key, "last")
         if q.empty or fy.empty:
             continue
         for end, g in fy.groupby("end", sort=True):
@@ -114,7 +125,15 @@ def fiscal_years(data: dict, cik=None) -> list[dict]:
             ok = _close(inq["val"].sum(), f["val"])
             status = "ok" if ok else ("fail" if key in HARD else "warn")
             if not ok:
-                notes.append("Q1+Q2+Q3 no longer add to the 9-month total or tags mixed; check for a mid-year recast")
+                rec, s_last, fy_l = _latest_reconciles(q_last, fy_last, g["start"].iloc[0], end, f["tag"])
+                if rec:
+                    status = "warn"
+                    notes.append(f"restatement mix: the first-filed quarters straddle a restatement; latest filed values "
+                                 f"reconcile ({s_last / 1e6:,.0f}M vs {fy_l / 1e6:,.0f}M). Parser is fine; TTM rows that "
+                                 f"include these quarters mix old and new accounting until they roll off")
+                else:
+                    notes.append("quarters do not reconcile even with latest filed values: likely a tag or "
+                                 "scope problem; open the filing")
             out.append(_row("fiscal_years", key, end, inq["val"].sum(), compare_to=f"10-K full year ({f['tag']})",
                             compare_value=f["val"], status=status, note="; ".join(notes), source=src))
     return out
@@ -267,7 +286,7 @@ def earnings_dates(sec_dates: pd.DataFrame, yahoo_dates: pd.DataFrame, today=Non
         st = "ok" if inside.mean() >= 0.95 else "warn"
         out.append(_row("earnings", "acceptance_clock", status=st, sec_value=float(inside.mean()),
                         note=f"{inside.mean():.0%} of {len(inside)} acceptance stamps fall inside EDGAR hours "
-                             f"(06:00 to 22:00) read as Eastern time"))
+                             f"(06:00 to 22:00 US Eastern)"))
     if yahoo_dates is None or yahoo_dates.empty:
         out.append(_row("earnings", "dates", status="info", note="Yahoo report dates unavailable; timing not cross-checked"))
         return out
