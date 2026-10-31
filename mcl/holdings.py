@@ -501,6 +501,95 @@ def option_panel(ticker: str, card: dict, close: pd.Series | None = None, grant:
     return "\n\n".join(out) if out else f"#### {ticker}: no usable expirations"
 
 
+# ---------------------------------------------------------------- dashboard data
+def _num(x, nd: int = 4):
+    """A finite number rounded for display, else None (JSON null)."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return round(v, nd) if np.isfinite(v) else None
+
+
+def _day(x):
+    if x is None or (not isinstance(x, str) and pd.isna(x)):
+        return None
+    return str(pd.Timestamp(x).date())
+
+
+def dashboard_rows(cards: list[dict], port: dict, budget: float, window: int) -> dict:
+    """Three row sets for the website: one row per holding, one portfolio row, and down day pairs.
+    Only finite numbers, ISO dates and plain text, so they serialize as strict JSON."""
+    total = port["total_value"]
+    holdings = []
+    for c in sorted(cards, key=lambda c: -c["value"]):
+        g, r, e = c["giveback"], c["recovery"], c["earnings"]
+        ep = r.get("episodes") or {}
+        enough = e.get("n", 0) >= 8
+        row = {"symbol": c["ticker"], "shares": _num(c["shares"]), "price_paid": _num(c["cost"]), "paid": _num(c["paid"], 2),
+               "price": _num(c["price"]), "value": _num(c["value"], 2), "gain": _num(c["unrealized"], 2),
+               "gain_pct": _num(c["unrealized_pct"]), "weight": _num(c["value"] / total if total else np.nan),
+               "as_of": _day(c["as_of"]),
+               "budget_state": ("used up" if g.get("budget_used_up") else "within budget") if g.get("applies") else "no gain to protect",
+               "peak_close": _num(g.get("peak_close")), "peak_date": _day(g.get("peak_date")),
+               "from_peak_pct": _num(c["price"] / g["peak_close"] - 1 if g.get("peak_close") else np.nan),
+               "floor_price": _num(g.get("floor_price")) if g.get("applies") else None,
+               "budget_room": _num(c.get("budget_room_dollars"), 2),
+               "from_high_pct": _num(r.get("from_high_pct")), "high": _num(r.get("high")), "high_date": _day(r.get("high_date")),
+               "rise_to_paid_pct": _num(r.get("rally_to_cost_pct")) if c["price"] < c["cost"] else None,
+               "recovery_cases": ep.get("n_reached"), "recovery_median_sessions": _num(ep.get("median_sessions_to_new_high"), 0),
+               "recovery_within_250": _num(ep.get("share_within_250")),
+               "next_report": _day(e.get("next_date")), "report_time": e.get("next_timing") if e.get("next_date") is not None else None,
+               "sessions_to_report": e.get("sessions_to"), "reports": int(e.get("n", 0)),
+               "typical_move": _num(e.get("median_abs_reaction")) if enough else None,
+               "bad_night": _num(e.get("p10_reaction")) if enough else None,
+               "good_night": _num(e.get("p90_reaction")) if enough else None,
+               "worst_night": _num(e.get("worst_reaction")) if enough else None,
+               "worst_night_date": _day(e.get("worst_reaction_date")) if enough else None,
+               "bad_night_dollars": _num(c["value"] * min(0.0, e["p10_reaction"]), 2) if enough else None}
+        for n in (20, 50, 200):
+            st = c["streaks"].get(n) or {}
+            h = st.get("h5") or {}
+            row[f"ma{n}_side"] = st.get("side")
+            row[f"ma{n}_sessions"] = st.get("streak")
+            row[f"ma{n}_gap"] = _num(st.get("distance_pct", np.nan) / 100)
+            row[f"ma{n}_share_this_long"] = _num(st.get("share_reaching_today"))
+            row[f"ma{n}_cases"] = h.get("n")
+            row[f"ma{n}_next5_median"] = _num(h.get("median_ret_pct", np.nan) / 100) if h.get("n", 0) >= 10 else None
+            row[f"ma{n}_next5_base"] = _num(h.get("base_median_ret_pct", np.nan) / 100) if h.get("n", 0) >= 10 else None
+        holdings.append(row)
+    st = port.get("stress") or {}
+    paid, gain = port["total_cost"], port["total_unrealized"]
+    portfolio = [{"as_of": _day(max(c["as_of"] for c in cards)), "positions": len(cards), "paid": _num(paid, 2),
+                  "value": _num(total, 2), "gain": _num(gain, 2), "gain_pct": _num(gain / paid if paid else np.nan),
+                  "reporting_10_count": len(port.get("earnings_next_10", [])),
+                  "reporting_10_share": _num(port.get("earnings_next_10_share")),
+                  "stress_start": _day(st.get("start")), "stress_end": _day(st.get("end")), "stress_names": st.get("names"),
+                  "stress_left_out": ", ".join(st.get("excluded", [])) or None,
+                  "stress_worst_day": _num(st.get("worst_day")), "stress_worst_day_date": _day(st.get("worst_day_date")),
+                  "stress_worst_20": _num(st.get("worst_20")), "stress_worst_20_end": _day(st.get("worst_20_end")),
+                  "stress_max_drawdown": _num(st.get("max_drawdown")),
+                  "market_minus10": _num(port.get("scenario_market_minus10"), 2),
+                  "semis_minus20": _num(port.get("scenario_semis_minus20"), 2),
+                  "down_days": port.get("down_days"), "budget": budget, "window": window,
+                  "generated_at": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ")}]
+    pairs = [{"pair": f"{a}/{b}", "first": a, "second": b, "correlation": _num(v, 2)}
+             for a, b, v in port.get("down_day_pairs", [])]
+    return {"holdings": holdings, "portfolio": portfolio, "pairs": pairs}
+
+
+def write_dashboard_json(rows: dict, out_dir: str | Path) -> list[Path]:
+    import json
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for name, data in rows.items():
+        f = out / f"holdings_{name}.json"
+        f.write_text(json.dumps(data, allow_nan=False, indent=1))
+        paths.append(f)
+    return paths
+
+
 # ---------------------------------------------------------------- run
 def load_market_data(tickers: list[str]) -> dict:
     from .config import SEC_USER_AGENT
@@ -528,7 +617,8 @@ def load_market_data(tickers: list[str]) -> dict:
 
 
 def run(path: str | Path | None = None, position_csv: str | Path | None = None, tickers: list[str] | None = None,
-        with_options: bool = False, budget: float = DEFAULT_GIVEBACK, window: int = DEFAULT_WINDOW) -> str:
+        with_options: bool = False, budget: float = DEFAULT_GIVEBACK, window: int = DEFAULT_WINDOW,
+        json_dir: str | Path | None = None) -> str:
     from .data import loader
     src = position_csv or path or default_path()
     if not Path(src).exists():
@@ -555,6 +645,8 @@ def run(path: str | Path | None = None, position_csv: str | Path | None = None, 
     except Exception:
         pass
     port = portfolio(cards, closes, spy, smh)
+    if json_dir is not None:
+        write_dashboard_json(dashboard_rows(cards, port, budget, window), json_dir)
     as_of = max(c["as_of"] for c in cards).date()
     parts = [f"# Holdings monitor, prices through {as_of}",
              "Facts: positions and prices. Associations (with counts): streak and recovery outcomes, reaction ranges. "
