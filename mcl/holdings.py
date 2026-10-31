@@ -420,16 +420,18 @@ def render_options(ticker: str, S: float, shares: float, expiry: str, days: int,
         for r in other.itertuples():
             L.append(f"| {r.label} | {r.strike} | {r.coverage:.0%} | {r.contracts} | {_usd(r.premium_total)} | "
                      f"{_usd(r.floor_per_share, 2)} | {r.tax_notes} |")
-    cols = ["hold"] + [c for c in pay.columns if c not in ("move", "hold") and c.endswith("x1")]
-    L.append("At expiration, profit or loss versus today for the whole position (100% coverage):")
-    L.append("| Stock move | " + " | ".join(cols) + " |")
+    full = " @ 100%"
+    cols = ["hold"] + [c for c in pay.columns if c not in ("move", "hold") and c.endswith(full)]
+    L.append("At expiration, profit or loss versus today for the whole position, calls and puts on every share "
+             "(100% coverage); hold = shares only:")
+    L.append("| Stock move | " + " | ".join(c.removesuffix(full) for c in cols) + " |")
     L.append("|---|" + "---|" * len(cols))
     for m in pay["move"]:
         L.append(f"| {_pct(m, 0)} | " + " | ".join(_usd(pay.loc[pay["move"] == m, c].iloc[0]) for c in cols) + " |")
     if not nd.empty:
-        cols2 = [c for c in nd.columns if c not in ("move",) and (c == "hold" or c.endswith("x1"))]
+        cols2 = [c for c in nd.columns if c != "move" and (c == "hold" or c.endswith(full))]
         L.append("If the stock moves tomorrow (model estimate, implied volatility unchanged), 100% coverage:")
-        L.append("| Move | " + " | ".join(cols2) + " |")
+        L.append("| Move | " + " | ".join(c.removesuffix(full) for c in cols2) + " |")
         L.append("|---|" + "---|" * len(cols2))
         for m in nd["move"]:
             L.append(f"| {_pct(m, 0)} | " + " | ".join(_usd(nd.loc[nd['move'] == m, c].iloc[0]) for c in cols2) + " |")

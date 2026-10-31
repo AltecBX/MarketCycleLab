@@ -103,11 +103,11 @@ def test_covered_call_payoff_and_effective_sale_price():
     assert itm["strike"] == 90 and math.isclose(itm["intrinsic"], 10) and math.isclose(itm["time_value"], 1.2)
     assert not itm["qualified_covered_call"]                                      # deep in the money
     pay = options.payoff_at_expiry(100.0, 200, st).set_index("move")
-    col = "call 10% OTM x1"
+    col = "call 10% OTM @ 100%"
     assert math.isclose(pay.loc[0.3, col], 200 * 30 - 200 * (130 - 110 - 1.2))     # capped: (110 + 1.2 − 100) x 200
     assert math.isclose(pay.loc[0.3, col], 200 * (110 + 1.2 - 100))
     assert math.isclose(pay.loc[-0.3, col], 200 * -30 + 200 * 1.2)
-    put = pay.loc[-0.3, "put 10% OTM x1"]
+    put = pay.loc[-0.3, "put 10% OTM @ 100%"]
     assert math.isclose(put, 200 * -30 + 200 * (90 - 70) - 200 * 1.0)                 # floor at 90 minus premium
 
 
@@ -130,7 +130,7 @@ def test_black_scholes_put_call_parity():
 def test_pick_expirations_around_earnings():
     exps = ["2026-11-06", "2026-11-13", "2026-11-20", "2026-12-18", "2027-01-15"]
     got = options.pick_expirations(exps, pd.Timestamp("2026-10-30"), pd.Timestamp("2026-11-17"))
-    assert got == ["2026-11-13", "2026-11-20"]
+    assert got == ["2026-11-13", "2026-12-18"]                      # after the report: more than 30 days out
     assert options.pick_expirations(exps, pd.Timestamp("2026-10-30"), None) == ["2026-12-18", "2027-01-15"]
 
 
@@ -198,6 +198,7 @@ def test_option_panel_counts_days_from_grant(monkeypatch):
     card = {"price": 100.0, "shares": 200, "as_of": idx[-1], "earnings": {"next_date": None}}
     text = holdings.option_panel("XYZ", card, close, grant=pd.Timestamp("2026-11-02"))
     assert "2026-12-04 (32 days)" in text                     # from Monday 11/2, not Friday 10/30 (35)
+    assert "| hold | call 0.20 delta |" in text and "@ 100%" not in text
     assert "2026-10-30 close $100.00" in text
 
 
@@ -215,3 +216,16 @@ def test_card_for_a_gain_that_turned_into_a_loss():
     assert "* Recovery:" in text                                   # below cost: the recovery view shows too
     assert "budget already used up" in text
     assert "(time not confirmed)" in text                          # a future 'dmh' is Yahoo's placeholder
+
+
+def test_nonstandard_contracts_are_left_out():
+    # live case: NFLX after its 10 for 1 split listed a 2450 strike next to 55 to 80 strikes, stock at $62.08
+    calls = pd.DataFrame({"contractSymbol": ["NFLX270115C00066000", "NFLX270115C00080000", "NFLX1270115C02450000"],
+                          "strike": [66.0, 80.0, 2450.0], "bid": [2.6, 1.3, 6.5], "ask": [2.8, 1.5, 7.0],
+                          "lastPrice": [2.7, 1.4, 6.8], "impliedVolatility": [0.45, 0.45, 4.4]})
+    assert options.standard_contracts(calls, "NFLX")["strike"].tolist() == [66.0, 80.0]
+    weird = pd.DataFrame({"contractSymbol": ["X1C1"], "strike": [10.0]})
+    assert len(options.standard_contracts(weird, "XYZ")) == 1                 # nothing matches: keep all
+    # even if such a row gets through, the 0.20 delta pick ignores it
+    row = options.delta_pick(calls, 62.08, 77 / 365, 0.20)
+    assert row["strike"] == 80.0

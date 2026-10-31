@@ -23,6 +23,7 @@ Tax notes (US federal; information, not advice; statute citations in SYSTEM_PLAN
 from __future__ import annotations
 
 import math
+import re
 
 import numpy as np
 import pandas as pd
@@ -114,7 +115,8 @@ def nearest(df: pd.DataFrame, target: float, side: str = "any") -> pd.Series | N
 
 def delta_pick(calls: pd.DataFrame, S: float, T: float, target: float = 0.20) -> pd.Series | None:
     """Out of the money call whose Black Scholes delta (at its own implied volatility) is closest to `target`."""
-    c = calls[(calls["strike"] > S) & (calls["impliedVolatility"].astype(float) > 0.01)]
+    iv = calls["impliedVolatility"].astype(float)
+    c = calls[(calls["strike"] > S) & (calls["strike"] <= 3 * S) & (iv > 0.01) & (iv < 3.0)]
     if c.empty or T <= 0:
         return None
     d = np.array([bs_delta(S, float(k), T, float(v)) for k, v in zip(c["strike"], c["impliedVolatility"], strict=True)])
@@ -203,7 +205,7 @@ def payoff_at_expiry(S: float, shares: int, st: pd.DataFrame, moves=(-0.3, -0.2,
             else:
                 P, K = (float(x) for x in str(r.strike).split("/"))
                 v = shares * (ST - S) + n * (r.premium_per_share + max(0.0, P - ST) - max(0.0, ST - K))
-            row[f"{r.label} x{r.coverage:g}"] = v
+            row[f"{r.label} @ {r.coverage:.0%}"] = v
         out.append(row)
     return pd.DataFrame(out)
 
@@ -219,15 +221,25 @@ def next_day_estimate(S: float, shares: int, st: pd.DataFrame, days: int, moves=
             if not np.isfinite(r.iv):
                 continue
             dc = bs_price(S1, r.strike, T1, r.iv) - bs_price(S, r.strike, T0, r.iv)
-            row[f"{r.label} x{r.coverage:g}"] = shares * (S1 - S) - 100 * r.contracts * dc
+            row[f"{r.label} @ {r.coverage:.0%}"] = shares * (S1 - S) - 100 * r.contracts * dc
         out.append(row)
     return pd.DataFrame(out)
+
+
+def standard_contracts(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
+    """Keep standard contracts (symbol = ticker, yymmdd, C or P, strike x 1000 in 8 digits). Contracts adjusted
+    for a split or merger carry another root (or odd strikes, such as a 2450 strike on a $62 stock after a
+    10 for 1 split) and have a different deliverable. If no symbol matches (unusual roots), keep everything."""
+    if "contractSymbol" not in df or df.empty:
+        return df
+    ok = df["contractSymbol"].astype(str).str.fullmatch(rf"{re.escape(ticker.upper())}\d{{6}}[CP]\d{{8}}")
+    return df[ok].copy() if ok.any() else df
 
 
 def chain(ticker: str, expiry: str) -> tuple[pd.DataFrame, pd.DataFrame]:
     from .data import yahoo
     oc = yahoo._yf().Ticker(ticker).option_chain(expiry)
-    return oc.calls.copy(), oc.puts.copy()
+    return standard_contracts(oc.calls, ticker), standard_contracts(oc.puts, ticker)
 
 
 def expirations(ticker: str) -> list[str]:
@@ -236,17 +248,20 @@ def expirations(ticker: str) -> list[str]:
 
 
 def pick_expirations(exps: list[str], today: pd.Timestamp, next_earnings=None) -> list[str]:
-    """Up to two expirations: the last one before the next report (at least a week out), and the first
-    at least 21 days out that is after the report. Without a report date: the first 30+ and 60+ days out."""
+    """Up to two expirations, counted from `today` (the day the call would be written):
+    the last one before the next report (at least a week out), and the first one after the report
+    that is more than 30 days out, so a qualified covered call is always among the choices.
+    Without a report date: the first more than 30 days out and the first at least 60 days out."""
     ds = sorted(pd.Timestamp(e) for e in exps)
+    q = today + pd.Timedelta(days=31)
     out = []
     if next_earnings is not None and pd.notna(next_earnings):
         E = pd.Timestamp(next_earnings)
         before = [d for d in ds if today + pd.Timedelta(days=7) <= d < E]
-        after = [d for d in ds if d > E and d >= today + pd.Timedelta(days=21)]
+        after = [d for d in ds if d > E and d >= q]
         out = ([before[-1]] if before else []) + ([after[0]] if after else [])
     if not out:
-        a = [d for d in ds if d >= today + pd.Timedelta(days=30)]
+        a = [d for d in ds if d >= q]
         b = [d for d in ds if d >= today + pd.Timedelta(days=60)]
         out = ([a[0]] if a else []) + ([b[0]] if b and (not a or b[0] != a[0]) else [])
     return [d.strftime("%Y-%m-%d") for d in out]
