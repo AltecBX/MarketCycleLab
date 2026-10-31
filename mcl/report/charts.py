@@ -43,6 +43,26 @@ def _base(fig: go.Figure, T: dict, title: str | None = None, height: int = 420) 
     return fig
 
 
+def _add_vrects(fig: go.Figure, spans, **kw) -> go.Figure:
+    """Same shapes as calling fig.add_vrect(x0, x1, **kw) for each span, in one layout update.
+
+    add_vrect re-validates every shape already on the figure, so a loop of calls
+    is quadratic in the number of spans (seconds for ~100 bear phases). The first
+    span goes through add_vrect so plotly resolves rows and axis references; the
+    rest copy those shapes with their own x0/x1. Shapes only: no annotation_* kwargs.
+    """
+    spans = list(spans)
+    if not spans:
+        return fig
+    n0 = len(fig.layout.shapes)
+    fig.add_vrect(x0=spans[0][0], x1=spans[0][1], **kw)
+    proto = [s.to_plotly_json() for s in fig.layout.shapes[n0:]]
+    extra = tuple({**p, "x0": a, "x1": b} for a, b in spans[1:] for p in proto)
+    if extra:
+        fig.layout.shapes = fig.layout.shapes + extra
+    return fig
+
+
 def price_overview(R: dict, prices: pd.DataFrame, earnings: pd.DataFrame | None = None, dark: bool = False,
                    regimes: pd.DataFrame | None = None, log: bool = True) -> go.Figure:
     """Price with swing pivots and earnings marks; drawdown from all-time high below."""
@@ -69,8 +89,7 @@ def price_overview(R: dict, prices: pd.DataFrame, earnings: pd.DataFrame | None 
         bear = (regimes["trend"] == "bear").reindex(c.index).fillna(False).astype(bool)
         starts = c.index[bear & ~bear.shift(1, fill_value=False)]
         ends = c.index[bear & ~bear.shift(-1, fill_value=False)]
-        for a, b in zip(starts, ends):
-            fig.add_vrect(x0=a, x1=b, fillcolor=T["neutral"], opacity=0.6, line_width=0, layer="below")
+        _add_vrects(fig, zip(starts, ends), fillcolor=T["neutral"], opacity=0.6, line_width=0, layer="below")
     dd = c / c.cummax() - 1.0
     fig.add_trace(go.Scatter(x=dd.index, y=dd, name="drawdown from high", fill="tozeroy",
                              line=dict(color=T["s"][7], width=1), fillcolor="rgba(227,73,72,0.25)",

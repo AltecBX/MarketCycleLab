@@ -84,24 +84,27 @@ def seasonal_walk_forward(close: pd.Series, freq: str = "month", col: str = "ret
     """
     pr = period_returns(close, freq, benchmark).dropna(subset=[col])
     years = sorted(pr["year"].unique())
+    # numpy masks instead of filtering the frame per row; the hit rates are the same k / n
+    yr, per, up = pr["year"].to_numpy(), pr["period"].to_numpy(), (pr[col] > 0).to_numpy()
     calls = []
     for y in years:
-        hist = pr[pr["year"] < y]
-        if hist["year"].nunique() < min_years:
+        before = yr < y
+        if len(np.unique(yr[before])) < min_years:
             continue
-        base_up = float((hist[col] > 0).mean())
+        base_up = float(up[before].mean())
         cur = pr[pr["year"] == y]
         for row in cur.itertuples():
-            h = hist[hist["period"] == row.period][col]
-            if len(h) < min_years:
+            same = before & (per == row.period)
+            n_hist = int(same.sum())
+            if n_hist < min_years:
                 continue
-            hr = float((h > 0).mean())
+            hr = float(up[same].mean())
             call = "up" if hr >= conviction else "down" if hr <= 1 - conviction else None
             if call is None:
                 continue
             realized = getattr(row, col)
             calls.append({"year": y, "period": row.period, "call": call, "hist_hit_rate": hr,
-                          "hist_n": len(h), "realized": realized,
+                          "hist_n": n_hist, "realized": realized,
                           "correct": (realized > 0) == (call == "up"),
                           "base_up_rate": base_up,
                           "naive_correct": (realized > 0) == (base_up >= 0.5)})
