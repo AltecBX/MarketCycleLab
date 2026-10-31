@@ -174,3 +174,15 @@ def test_partial_year_filter_keeps_transition_reports():
     df = sec._facts(payload({"Revenues": [F("2020-01-01", "2020-06-30", 5, "2020-08-01", "10-KT", "t"),
                                           F("2020-01-01", "2020-06-30", 5, "2020-08-01", "10-K", "k")]}), "Revenues")
     assert sec._drop_partial_years_from_annual_reports(df)["form"].tolist() == ["10-KT"]
+
+
+def test_basis_compare_late_first_reported_value_is_not_a_miss():
+    # MSFT 2010-03-31: first-reported TTM only usable 2010-07-31 (122 days), from the FY2010 10-K's comparatives
+    from mcl import verify
+    ends = pd.to_datetime(["2009-06-30", "2009-09-30", "2009-12-31", "2010-03-31"])
+    q = pd.DataFrame({"period_end": ends, "filed": pd.to_datetime(["2010-07-30", "2009-10-23", "2010-01-28", "2010-04-22"]),
+                      "revenue": [1.0, 1.0, 1.0, 1.0]})
+    rows = pd.DataFrame({"knowledge_date": pd.to_datetime(["2010-04-22"]), "period_end": pd.to_datetime(["2010-03-31"]),
+                         "ttm_revenue": [np.nan], "ttm_revenue_prev": [np.nan]})
+    summary = pd.DataFrame(verify.basis_compare(q, rows)).iloc[-1]
+    assert summary["status"] == "ok" and "misses 0 (plus 1 first-reported" in summary["note"]

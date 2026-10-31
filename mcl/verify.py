@@ -371,8 +371,9 @@ def basis_compare(q: pd.DataFrame, asof_rows: pd.DataFrame | None) -> list[dict]
     """First-reported TTM vs the restated-as-of TTM first known for the same period.
 
     Periods are matched within 10 days (52/53-week calendars and tagging quirks).
-    A first-reported TTM that only became usable 150+ days after its period end
-    (built from comparatives filed much later) is not counted as a miss.
+    A first-reported TTM that only became usable 120+ days after its period end
+    (built from comparatives filed later; the longest regular first filing is a
+    10-K at 90 days plus a 15-day extension) is not counted as a miss.
     """
     from .analytics import valuation
     if q is None or q.empty or asof_rows is None or asof_rows.empty:
@@ -397,7 +398,7 @@ def basis_compare(q: pd.DataFrame, asof_rows: pd.DataFrame | None) -> list[dict]
             if not np.isfinite(a) and not np.isfinite(b):
                 continue
             if np.isfinite(a) and not np.isfinite(b):
-                if (tf.at[pe, "available"] - pe).days > 150:
+                if (tf.at[pe, "available"] - pe).days > 120:
                     late += 1
                     continue
                 lost += 1
@@ -415,7 +416,7 @@ def basis_compare(q: pd.DataFrame, asof_rows: pd.DataFrame | None) -> list[dict]
     out.append(_row("asof", "summary", status="warn" if lost else "ok",
                     note=f"{n} periods compared, {differ} differ (restatements applied from their filing date); as-of adds "
                          f"{gained} TTM values the first-reported basis lacks, misses {lost} "
-                         f"(plus {late} first-reported values that only existed 150+ days after period end)"))
+                         f"(plus {late} first-reported values that only existed 120+ days after period end)"))
     return out
 
 
