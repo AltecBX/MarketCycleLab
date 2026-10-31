@@ -318,6 +318,24 @@ def _eastern(acceptance: str) -> pd.Timestamp:
     return ts.tz_convert("America/New_York").tz_localize(None)
 
 
+ASOF_CACHE = "fundamentals_asof_v1"
+
+
+def fundamentals_asof(ticker: str) -> pd.DataFrame:
+    """Restated-as-of rows (see sec_asof): one per filing date, cached a day."""
+    cached = store.load_frame(ASOF_CACHE, ticker, 24.0, parse_index=False)
+    if cached is not None:
+        for c in ("knowledge_date", "period_end", "shares_date"):
+            if c in cached:
+                cached[c] = pd.to_datetime(cached[c], errors="coerce")
+        return cached
+    from . import sec_asof
+    _, data = company_data(ticker)
+    rows = sec_asof.fundamentals_asof(data)
+    store.save_frame(rows, ASOF_CACHE, ticker)
+    return rows
+
+
 def earnings_releases(ticker: str, refresh_hours: float = 24.0) -> pd.DataFrame:
     """8-K Item 2.02 filings: date and acceptance time (US Eastern), before/after-market timing."""
     from ..analytics.earnings import classify_timing

@@ -22,6 +22,11 @@ confirmed by hand in the 10-Q or 10-K.
 6. earnings      8-K Item 2.02 dates and before-open / after-close timing vs
                  Yahoo's report times (SEC acceptance converted from UTC to Eastern),
                  and 2.02 filings with no report near them.
+7. asof          TTM revenue and net income on the two fundamentals bases, period
+                 by period: "first" (each quarter as first reported) vs "asof"
+                 (restated as of each filing). They should agree except where a
+                 filing restated something; every difference is listed with the
+                 filing date it comes from.
 
 Row status: ok, info (explained difference), warn (look at it), fail (wrong number).
 """
@@ -362,6 +367,43 @@ def earnings_dates(sec_dates: pd.DataFrame, yahoo_dates: pd.DataFrame, today=Non
     return out
 
 
+def basis_compare(q: pd.DataFrame, asof_rows: pd.DataFrame | None) -> list[dict]:
+    """First-reported TTM vs the restated-as-of TTM first known for the same period."""
+    from .analytics import valuation
+    if q is None or q.empty or asof_rows is None or asof_rows.empty:
+        return [_row("asof", "all", status="info", note="no rows to compare")]
+    tf = valuation.ttm(q).set_index("period_end")
+    ta = valuation.ttm_asof(asof_rows)
+    first_view = ta.groupby("period_end").first()
+    out, n, differ, gained, lost = [], 0, 0, 0, 0
+    for key in ("revenue", "net_income"):
+        col = f"ttm_{key}"
+        if col not in tf or col not in first_view:
+            continue
+        for pe in sorted(set(tf.index) | set(first_view.index)):
+            a = float(tf[col].get(pe, np.nan)) if pe in tf.index else np.nan
+            b = float(first_view[col].get(pe, np.nan)) if pe in first_view.index else np.nan
+            if not np.isfinite(a) and not np.isfinite(b):
+                continue
+            if np.isfinite(a) and not np.isfinite(b):
+                lost += 1
+                out.append(_row("asof", key, pe, a, compare_to="asof TTM", status="warn",
+                                note="first-reported TTM exists but the as-of TTM could not be built"))
+            elif np.isfinite(b) and not np.isfinite(a):
+                gained += 1
+            else:
+                n += 1
+                if not _close(a, b):
+                    differ += 1
+                    known = (first_view.loc[pe, "available"] - pd.Timedelta(days=1)).date()
+                    out.append(_row("asof", key, pe, a, compare_to="asof TTM", compare_value=b, status="info",
+                                    note=f"as-of applies a restatement already filed by {known}"))
+    out.append(_row("asof", "summary", status="warn" if lost else "ok",
+                    note=f"{n} periods compared, {differ} differ (restatements applied from their filing date); "
+                         f"as-of adds {gained} TTM values the first-reported basis lacks, misses {lost}"))
+    return out
+
+
 def run(ticker: str, use_yahoo: bool = True) -> dict:
     """All checks for one ticker. Returns {'rows': DataFrame, 'summary': DataFrame, 'spot': DataFrame, 'notes': [...]}."""
     from .data import yahoo
@@ -393,8 +435,14 @@ def run(ticker: str, use_yahoo: bool = True) -> dict:
     except Exception as e:
         sdates = None
         notes.append(f"SEC 8-K list unavailable: {e}")
+    try:
+        from .data import sec_asof
+        asof_rows = sec_asof.fundamentals_asof(data)
+    except Exception as e:
+        asof_rows = None
+        notes.append(f"as-of basis could not be built: {e}")
     rows = (fiscal_years(data, cik) + vs_yahoo(data, ystm, cik) + restated(data, cik) + integrity(q, cik)
-            + shares(data, q, splits) + earnings_dates(sdates, ydates))
+            + shares(data, q, splits) + earnings_dates(sdates, ydates) + basis_compare(q, asof_rows))
     df = pd.DataFrame(rows, columns=COLS)
     df.insert(0, "ticker", tk)
     summary = summarize(df)

@@ -93,6 +93,21 @@ A ticker that moved under a new holding company gets a new SEC CIK with only a f
 
 The spot check at the end of each ticker lists the last four quarters of revenue and net income with the filing folder link: open it, open the 10-Q or 10-K, and compare with the income statement. Tolerance is 0.5% or $2M, whichever is larger. The command exits with code 1 when any check has a FAIL.
 
+## Fundamentals basis
+
+Two ways to treat restatements in every valuation study. Pick one in the dashboard sidebar ("Fundamentals"), with `--basis` on `study`, `scan` and `fetch`, or for everything with `export MCL_FUNDAMENTALS=asof`.
+
+| Basis | What each day uses | Trade off |
+|---|---|---|
+| `first` (default) | each quarter as first reported, kept forever | never changes once filed; around a restatement the TTM mixes old and new accounting until the old quarters roll off |
+| `asof` | trailing twelve months rebuilt on every 10-Q, 10-K or amendment from what had been filed by then: the 10-K year, or prior year minus prior year to date plus year to date | a restatement counts from the day after it was filed, as investors saw it (JPMorgan's 10-Q/A of 2012-08-09 lowers TTM net income by 459M from 2012-08-10) |
+
+Neither basis looks ahead: a value is usable the day after the filing that contains it. Without restatements the two give identical TTM figures; `python -m mcl verify` lists every period where they differ and the filing that caused it.
+
+```bash
+python -m mcl study JPM --basis asof
+```
+
 ## Troubleshooting (Mac)
 
 | Symptom | Fix |

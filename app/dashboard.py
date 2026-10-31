@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mcl import study  # noqa: E402
 from mcl.analytics import peers as peers_mod, state  # noqa: E402
-from mcl.config import ROOT, SEC_USER_AGENT  # noqa: E402
+from mcl.config import FUNDAMENTALS_BASIS, ROOT, SEC_USER_AGENT  # noqa: E402
 from mcl.data import demo, loader, universe  # noqa: E402
 from mcl.report import charts  # noqa: E402
 
@@ -68,18 +68,18 @@ def evidence_table(t: pd.DataFrame):
 
 
 @st.cache_data(show_spinner="Loading data and running studies...", ttl=6 * 3600)
-def run_cached(mode: str, ticker: str, threshold: float):
-    b = demo.bundle(ticker=ticker or "DEMO") if mode == "Demo (synthetic)" else loader.load(ticker)
+def run_cached(mode: str, ticker: str, threshold: float, basis: str = "first"):
+    b = demo.bundle(ticker=ticker or "DEMO") if mode == "Demo (synthetic)" else loader.load(ticker, basis=basis)
     R = study.run(b, threshold)
     return b, R
 
 
 @st.cache_data(show_spinner="Loading peer valuations...", ttl=12 * 3600)
-def peer_valuations(tickers: tuple, metric: str):
+def peer_valuations(tickers: tuple, metric: str, basis: str = "first"):
     out, notes = {}, []
     for t in tickers:
         try:
-            pb = loader.load(t, with_regimes=False)
+            pb = loader.load(t, with_regimes=False, basis=basis)
             if pb.valuation is not None and metric in pb.valuation:
                 out[t] = {"series": pb.valuation[metric],
                           "snap": pb.valuation.dropna(subset=[metric]).iloc[-1] if pb.valuation[metric].notna().any() else None}
@@ -89,14 +89,14 @@ def peer_valuations(tickers: tuple, metric: str):
 
 
 @st.cache_data(show_spinner="Scanning watchlist...", ttl=6 * 3600)
-def scan_cached(mode: str, tickers: tuple, threshold: float):
+def scan_cached(mode: str, tickers: tuple, threshold: float, basis: str = "first"):
     bundles = {}
     for i, t in enumerate(tickers):
         try:
             if mode == "Demo (synthetic)":
                 b = demo.bundle(seed=11 + i, ticker=t)
             else:
-                b = loader.load(t, with_regimes=False)
+                b = loader.load(t, with_regimes=False, basis=basis)
             bundles[t] = {"prices": b.prices, "valuation": b.valuation, "metric": b.metric, "next_earnings": b.next_earnings}
         except Exception as e:
             bundles[t] = {"prices": pd.DataFrame({"close": []}), "error": str(e)}
@@ -112,12 +112,17 @@ typed = st.sidebar.text_input("Ticker (stock, sector or industry ETF, SPY, QQQ)"
 ticker = (typed or pick).strip().upper() if pick == "(type below)" else pick
 threshold = st.sidebar.select_slider("Swing size that counts as a rally or selloff", options=[0.05, 0.08, 0.10, 0.15, 0.20, 0.25, 0.30],
                                      value=0.10, format_func=lambda x: f"{x:.0%}")
+BASIS_LABELS = {"first": "As first reported", "asof": "Restated as of filing date"}
+basis = st.sidebar.radio("Fundamentals", list(BASIS_LABELS), format_func=BASIS_LABELS.get,
+                         index=list(BASIS_LABELS).index(FUNDAMENTALS_BASIS) if FUNDAMENTALS_BASIS in BASIS_LABELS else 0,
+                         help="As first reported keeps each quarter's original numbers. Restated as of filing date "
+                              "applies a restatement from the day it was filed, as investors saw it then.")
 dark = st.sidebar.toggle("Dark charts", value=False)
 if mode.startswith("Live") and not SEC_USER_AGENT:
     st.sidebar.warning('Set MCL_SEC_USER_AGENT="Name email" for SEC fundamentals and earnings dates. Prices still load from Yahoo.')
 
 try:
-    b, R = run_cached(mode, ticker, threshold)
+    b, R = run_cached(mode, ticker, threshold, basis)
 except Exception as e:
     st.error(f"Could not load {ticker}: {e}")
     st.stop()
@@ -252,7 +257,7 @@ with tabs[5]:
     if mode == "Demo (synthetic)" or not peer_list or b.metric is None:
         st.info("Peers come from the S&P 500 GICS sub-industry, or from data/user/peers.json. Live mode only.")
     elif st.button(f"Load {len(peer_list)} peers: {', '.join(peer_list)}"):
-        pv, notes = peer_valuations(tuple(peer_list), b.metric)
+        pv, notes = peer_valuations(tuple(peer_list), b.metric, basis)
         for n in notes:
             st.caption(n)
         if len(pv) >= 3:
@@ -346,7 +351,7 @@ with tabs[10]:
 with tabs[11]:
     tks = st.text_input("Watchlist (comma separated; save to data/user/watchlist.json to persist)", ",".join(wl))
     lst = tuple(t.strip().upper() for t in tks.split(",") if t.strip())
-    sc = scan_cached(mode, lst, threshold)
+    sc = scan_cached(mode, lst, threshold, basis)
     st.dataframe(pretty(sc), hide_index=True, width="stretch")
 
 with tabs[12]:

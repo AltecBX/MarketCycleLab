@@ -1,7 +1,8 @@
 """Command line: python -m mcl <command>
 
   fetch TICKER [TICKER ...]   download prices, fundamentals and earnings dates into the cache
-  study TICKER [--threshold 0.10] [--out reports/TICKER.html]   run every study, write an HTML report
+  study TICKER [--threshold 0.10] [--out reports/TICKER.html] [--basis first|asof]
+                              run every study, write an HTML report
   scan [TICKER ...]           watchlist phase and alerts (default: data/user/watchlist.json)
   market                      long-run S&P 500 study (Shiller, VIX, 10y), writes reports/market_study.md
   verify [TICKER ...]         check SEC quarterly fundamentals against the 10-K totals and Yahoo,
@@ -16,21 +17,25 @@ import sys
 
 import pandas as pd
 
-from .config import REPORTS_DIR
+from .config import BASES, REPORTS_DIR
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="mcl", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
+    basis_help = "fundamentals basis: first = as first reported (default, or MCL_FUNDAMENTALS), asof = restated as of each filing"
     f = sub.add_parser("fetch")
     f.add_argument("tickers", nargs="+")
+    f.add_argument("--basis", choices=BASES, help=basis_help)
     s = sub.add_parser("study")
     s.add_argument("ticker")
     s.add_argument("--threshold", type=float, default=0.10)
     s.add_argument("--out")
+    s.add_argument("--basis", choices=BASES, help=basis_help)
     sc = sub.add_parser("scan")
     sc.add_argument("tickers", nargs="*")
     sc.add_argument("--threshold", type=float, default=0.10)
+    sc.add_argument("--basis", choices=BASES, help=basis_help)
     m = sub.add_parser("market")
     m.add_argument("--since", default="1950-01-01")
     v = sub.add_parser("verify")
@@ -44,7 +49,7 @@ def main(argv=None) -> int:
     if a.cmd == "fetch":
         from .data import loader
         for t in a.tickers:
-            b = loader.load(t)
+            b = loader.load(t, basis=a.basis)
             print(f"{t}: {len(b.prices)} bars {b.prices.index[0].date()} to {b.prices.index[-1].date()}; "
                   f"quarters {0 if b.quarters is None else len(b.quarters)}; "
                   f"earnings {0 if b.earnings is None else len(b.earnings)}; metric {b.metric}")
@@ -54,7 +59,7 @@ def main(argv=None) -> int:
         from . import study
         from .data import demo, loader
         from .report import html
-        b = demo.bundle() if a.cmd == "demo" else loader.load(a.ticker)
+        b = demo.bundle() if a.cmd == "demo" else loader.load(a.ticker, basis=a.basis)
         R = study.run(b, getattr(a, "threshold", 0.10))
         out = getattr(a, "out", None) or REPORTS_DIR / f"{b.ticker}.html"
         html.build(b, R, out)
@@ -70,7 +75,7 @@ def main(argv=None) -> int:
         bundles = {}
         for t in tks:
             try:
-                b = loader.load(t, with_regimes=False)
+                b = loader.load(t, with_regimes=False, basis=a.basis)
                 bundles[t] = {"prices": b.prices, "valuation": b.valuation, "metric": b.metric, "next_earnings": b.next_earnings}
             except Exception as e:
                 print(f"skip {t}: {e}")
