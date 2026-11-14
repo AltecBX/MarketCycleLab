@@ -67,9 +67,13 @@ const factors = (): Factors => {
     const r = mulberry32(hashString(`group:${g.id}`));
     const arr = new Float64Array(dates.length);
     let glv = 0;
+    // The group level is mean reverting, so a group cannot drift arbitrarily far from the market.
+    let level = 0;
     for (let i = 0; i < dates.length; i++) {
       glv = 0.96 * glv + 0.15 * gaussian(r);
-      arr[i] = 0.00012 + 0.009 * Math.exp(glv) * gaussian(r);
+      const next = 0.9985 * level + 0.0075 * Math.exp(glv) * gaussian(r);
+      arr[i] = 0.00008 + next - level;
+      level = next;
     }
     groups.set(g.id, arr);
   }
@@ -95,8 +99,8 @@ const profileOf = (inst: Instrument): Profile => {
   return {
     beta: 0.8 + rnd() * 1.1,
     groupBeta: 0.7 + rnd() * 0.8,
-    idioVol: 0.011 + rnd() * 0.018,
-    drift: 0.00005 + rnd() * 0.00035,
+    idioVol: 0.009 + rnd() * 0.013,
+    drift: 0.00002 + rnd() * 0.0003,
     endPrice: 18 + Math.exp(rnd() * 3.2) * 22,
     baseVolume: 2e6 + Math.exp(rnd() * 3.5) * 2e6,
   };
@@ -174,10 +178,14 @@ export const syntheticDaily = (inst: Instrument): DailySeries => {
   const n = f.dates.length - startIdx;
   const rets = new Float64Array(n);
   let lv = 0;
+  // The stock specific level is mean reverting (half life near three years) so long histories stay plausible.
+  let idio = 0;
   for (let k = 0; k < n; k++) {
     const i = startIdx + k;
     lv = 0.95 * lv + 0.16 * gaussian(rnd);
-    let r = p.drift + p.beta * f.market[i]! + (gf ? p.groupBeta * gf[i]! : 0) + p.idioVol * Math.exp(lv) * gaussian(rnd);
+    const nextIdio = 0.9991 * idio + p.idioVol * Math.exp(lv) * gaussian(rnd);
+    let r = p.drift + p.beta * f.market[i]! + (gf ? p.groupBeta * gf[i]! : 0) + (nextIdio - idio);
+    idio = nextIdio;
     if (reactions.has(f.dates[i]!)) r += gaussian(rnd) * (0.035 + p.idioVol * 2.2);
     rets[k] = Math.max(-0.45, Math.min(0.6, r));
   }
