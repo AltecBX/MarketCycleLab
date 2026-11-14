@@ -10,7 +10,7 @@
  * - calm: 20 session realized volatility, ranked against the trailing 252 sessions and inverted,
  * - drawdown: close versus the highest close of the trailing 252 sessions, mapped linearly so a
  *   new high scores 100 and a 12% decline scores 0.
- * The blend is stretched around 50, averaged over five sessions and clamped to 0..100.
+ * The blend is compressed toward 50, averaged over five sessions and clamped to 0..100.
  */
 import { rollingReturnStd, sma } from '../../engine/core/indicators';
 import { midrankPercentile } from '../../engine/core/stats';
@@ -65,7 +65,7 @@ export const syntheticSentiment = (spyBars: readonly Bar[]): SentimentFixture =>
     for (let j = Math.max(0, i - RANK_WINDOW + 1); j <= i; j++) if (closes[j]! > peak) peak = closes[j]!;
     const dd = clamp(100 * (1 + (closes[i]! / peak - 1) / 0.12));
     const blend = 0.45 * m + 0.3 * (100 - v) + 0.25 * dd;
-    raw[i] = clamp(50 + (blend - 50) * 1.3);
+    raw[i] = clamp(50 + (blend - 50) * 0.8);
   }
   const points: SentimentFixture['points'] = [];
   for (let i = SMOOTH - 1; i < closes.length; i++) {
