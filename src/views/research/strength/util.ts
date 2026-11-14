@@ -1,7 +1,6 @@
 /** Shared helpers for the Strength view: URL params, layout probe, small formatters. */
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { rollingExtreme } from '../../../engine/core/indicators';
 import { isNa, type Bar, type ISODate, type Maybe } from '../../../engine/core/types';
 import { WINDOW_SPECS, windowBase, type RangeBasis, type WindowKey } from '../../../engine/relativeStrength';
 import type { BreakSide, BreakWindowKey } from '../../../engine/breakouts';
@@ -100,5 +99,3 @@ export const priorLevelNow = (bars: readonly Bar[], window: BreakWindowKey, side
   return { level: v, date: bars[idx]!.date, age: i - idx, gap: bars[i]!.close / v - 1 };
 };
 
-// Kept so the session window convention above stays tied to the core helper it mirrors.
-export const _rollingExtremeRef = rollingExtreme;
