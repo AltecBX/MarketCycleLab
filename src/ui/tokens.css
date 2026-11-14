@@ -180,6 +180,7 @@ button { cursor: pointer; }
 .faint { color: var(--text-3); }
 .small { font-size: 12px; }
 .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat-value.num { white-space: normal; }
 .up { color: var(--up); }
 .down { color: var(--down); }
 .flat { color: var(--text-2); }
@@ -248,7 +249,7 @@ button { cursor: pointer; }
 @media (max-width: 760px) { .subnav { margin: 0 calc(-1 * var(--s3)); padding: 0 var(--s3); } }
 
 /* Tables. Wide tables scroll inside their own container, never the page. */
-.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: var(--radius-sm); max-width: 100%; }
+.table-wrap { position: relative; overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border); border-radius: var(--radius-sm); max-width: 100%; }
 .table-wrap:focus-visible { outline-offset: -2px; }
 table.data { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
 table.data th, table.data td { padding: 7px 10px; text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }

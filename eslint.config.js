@@ -14,5 +14,5 @@ export default tseslint.config(
       'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },
-  { files: ['e2e/**', 'server/dev.ts'], languageOptions: { globals: { console: 'readonly', process: 'readonly' } }, rules: { 'no-console': 'off' } },
+  { files: ['e2e/**', 'server/dev.ts', 'server/hash.ts'], languageOptions: { globals: { console: 'readonly', process: 'readonly', fetch: 'readonly', setTimeout: 'readonly', document: 'readonly', window: 'readonly', sessionStorage: 'readonly', localStorage: 'readonly', history: 'readonly', PopStateEvent: 'readonly' } }, rules: { 'no-console': 'off' } },
 );

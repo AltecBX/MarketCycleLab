@@ -147,6 +147,7 @@ export function SentimentTab() {
       hasStock: s0 !== null,
       markers,
       label: (x: number) => fmtDate(rows[Math.round(x)]?.date),
+      ticks: [0, Math.floor((rows.length - 1) / 2), rows.length - 1],
     };
   }, [study, r.bars, r.symbol]);
 
@@ -222,6 +223,7 @@ export function SentimentTab() {
           ariaLabel={`Sentiment score from ${fmtDate(study.overlay.first)} to ${fmtDate(study.overlay.last)}. Latest ${fmtNum(last.score, 1)}, ${zoneLabel(last.zone)}`}
           series={[{ id: 'score', label: 'Score', points: chart.score, width: 1.4 }]}
           xLabel={chart.label}
+          xTicks={chart.ticks}
           yFormat={(y) => fmtNum(y, 0)}
           yDomain={[0, 100]}
           height={190}
@@ -244,6 +246,7 @@ export function SentimentTab() {
           ]}
           markers={chart.markers}
           xLabel={chart.label}
+          xTicks={chart.ticks}
           yFormat={(y) => fmtNum(y, 0)}
           height={220}
         />

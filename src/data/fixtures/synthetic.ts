@@ -223,6 +223,10 @@ export const syntheticDaily = (inst: Instrument): DailySeries => {
   return series;
 };
 
+const MEGA = new Set(['NVDA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'TSLA', 'AVGO', 'TSM', 'LLY']);
+const LARGE = new Set(['AMD', 'MU', 'INTC', 'QCOM', 'JPM', 'XOM', 'UNH', 'COST', 'WMT', 'CAT', 'BABA', 'PDD', 'ETN', 'GEV', 'MRVL']);
+const SMALL = new Set(['AAOI', 'AXTI', 'ARQQ', 'RGTI', 'QBTS', 'INFQ']);
+
 const fiscalQuarterEnds = (asOf: ISODate, count: number): ISODate[] => {
   const out: ISODate[] = [];
   let y = yearOf(asOf);
@@ -243,17 +247,19 @@ export const syntheticFundamentals = (inst: Instrument): Maybe<Fundamentals> => 
   const series = syntheticDaily(inst);
   const last = series.bars[series.bars.length - 1]!;
   const src = fixtureSource();
-  const capB = Math.exp(0.8 + rnd() * 7.2); // about $2B to $3T
+  // Synthetic size tiers so the fixture has a believable spread of large, mid and small names.
+  const tier = MEGA.has(inst.symbol) ? [900, 3200] : LARGE.has(inst.symbol) ? [80, 600] : SMALL.has(inst.symbol) ? [1.2, 9] : [10, 90];
+  const capB = tier[0]! * Math.exp(rnd() * Math.log(tier[1]! / tier[0]!));
   const marketCap = capB * 1e9;
   const shares = marketCap / last.close;
   const pe = 9 + rnd() * 45;
   const lossMaking = rnd() < 0.12;
   const eps = lossMaking ? -round2(0.1 + rnd() * 2) : round2(last.close / pe);
   const ends = fiscalQuarterEnds(FIXTURE_AS_OF, 5);
-  const fcfMargin = (rnd() - 0.15) * 0.06;
+  const fcfMargin = (rnd() - 0.2) * 0.012;
   const periods: CashFlowPeriod[] = ends.map((periodEnd, k) => {
-    const ocf = marketCap * (fcfMargin + 0.012 + (rnd() - 0.5) * 0.004);
-    const capex = Math.abs(marketCap * (0.004 + rnd() * 0.006));
+    const ocf = marketCap * (fcfMargin + 0.006 + (rnd() - 0.5) * 0.002);
+    const capex = Math.abs(marketCap * (0.001 + rnd() * 0.003));
     const missing = k === 0 && hashString(inst.symbol) % 9 === 0; // newest report lacks a derivable FCF
     return {
       scope: 'quarter',

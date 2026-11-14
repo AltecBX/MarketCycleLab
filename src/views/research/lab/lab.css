@@ -24,3 +24,5 @@
 }
 .lab-seg dd .num, .lab-seg dd.num { white-space: normal; }
 .lab-left { white-space: normal !important; min-width: 96px; text-align: left !important; }
+@media (max-width: 760px) { .lab-wrap .num { white-space: normal; } }
+@media (max-width: 760px) { .lab-wrap td.l { min-width: 132px; } .lab-wrap td.l:first-child { min-width: 0; } }

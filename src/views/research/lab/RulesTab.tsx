@@ -202,6 +202,17 @@ function SegmentPanel({ s, hasFailure }: { s: AuditSummary; hasFailure: boolean 
       <dl className="kv">
         <dt>Signals kept</dt>
         <dd className="num">{fmtInt(s.n)}</dd>
+        {s.n === 0 ? (
+          <>
+        <dt>Every session</dt>
+        <dd className="num">
+          {b.allWinRate === null ? 'n/a' : fmtPct(b.allWinRate, 0, false)} <span className="faint small">of {fmtInt(b.allSessions)} overlapping windows</span>
+        </dd>
+            <dt>Every session median net</dt>
+            <dd className="num">{b.allMedianNet === null ? 'n/a' : fmtPct(b.allMedianNet)}</dd>
+          </>
+        ) : (
+          <>
         <dt>Higher net close</dt>
         <dd><Freq p={s.win} /></dd>
         <dt>Every session</dt>
@@ -222,7 +233,9 @@ function SegmentPanel({ s, hasFailure }: { s: AuditSummary; hasFailure: boolean 
         <dd><Pct v={s.gross?.median} /></dd>
         <dt>Worst close in hold</dt>
         <dd className="num">{s.adverse ? `median ${fmtPct(s.adverse.median, 1)}, p10 ${fmtPct(s.adverse.p10, 1)}` : 'n/a'}</dd>
-        {hasFailure && (
+          </>
+        )}
+        {hasFailure && s.n > 0 && (
           <>
             <dt>Failed</dt>
             <dd><Freq p={s.failure} /></dd>

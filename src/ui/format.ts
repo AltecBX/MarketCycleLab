@@ -30,19 +30,23 @@ export const fmtTimeET = (isoInstant: string | null | undefined): string => {
 };
 
 const MINUS = '−';
-const sign = (x: number, signed: boolean): string => (x < 0 ? MINUS : signed && x > 0 ? '+' : '');
+/** Sign for a value that will be shown with `digits` decimals. A value that rounds to zero gets no sign. */
+const sign = (x: number, signed: boolean, digits = 6): string => {
+  const r = Number(Math.abs(x).toFixed(digits));
+  return r === 0 ? '' : x < 0 ? MINUS : signed ? '+' : '';
+};
 
 /** Fraction to percent text. 0.1234 gives '+12.34%' when signed. */
 export const fmtPct = (x: number | null | undefined, digits = 2, signed = true): string => {
   if (!isNum(x)) return 'n/a';
   const v = Math.abs(x * 100);
-  return `${sign(x, signed)}${v.toFixed(digits)}%`;
+  return `${sign(x * 100, signed, digits)}${v.toFixed(digits)}%`;
 };
 
 /** Percentage-point difference stored as a fraction. 0.0123 gives '+1.23 pp'. */
 export const fmtPp = (x: number | null | undefined, digits = 2): string => {
   if (!isNum(x)) return 'n/a';
-  return `${sign(x, true)}${Math.abs(x * 100).toFixed(digits)} pp`;
+  return `${sign(x * 100, true, digits)}${Math.abs(x * 100).toFixed(digits)} pp`;
 };
 
 export const fmtNum = (x: number | null | undefined, digits = 2, signed = false): string => {
