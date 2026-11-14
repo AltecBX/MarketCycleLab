@@ -22,3 +22,5 @@
 @media (max-width: 760px) {
   .lab-wrap td, .lab-wrap th { white-space: normal !important; }
 }
+.lab-seg dd .num, .lab-seg dd.num { white-space: normal; }
+.lab-left { white-space: normal !important; min-width: 96px; text-align: left !important; }

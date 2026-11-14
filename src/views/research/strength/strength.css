@@ -32,3 +32,6 @@
 .st-find > div { border-left: 3px solid var(--border-strong); padding-left: 10px; }
 .st-find > div[data-active='true'] { border-left-color: var(--gold-line); }
 .st-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+/* Frequencies carry hits, denominator and interval. Let that text wrap on phones. */
+.st-root .stat-value, .st-root .stat-value .num, .st-find .num { white-space: normal; }
+.st-root .stat-value .small { font-weight: 500; }

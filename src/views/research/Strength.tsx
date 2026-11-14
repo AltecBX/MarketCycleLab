@@ -28,7 +28,7 @@ function Inner() {
   const h = Number(get('h', '20'));
 
   return (
-    <div className="stack">
+    <div className="stack st-root">
       <Lead bars={r.bars} basis={basis} spy={spyData} />
       <div className="st-controls">
         <Segmented label="Strength view" value={tab} options={TABS} onChange={(v) => set({ tab: v === 'ranges' ? null : v }, false)} />
