@@ -125,7 +125,7 @@ export function PriceCard() {
   const ddPoints = useMemo(() => dd.slice(start).map((p) => ({ x: p.index, y: p.drawdown })), [dd, start]);
   const xLabel = (x: number) => fmtDate(bars[Math.round(x)]?.date);
   const narrow = useNarrow();
-  const xTicks = narrow ? [start, Math.round((start + n - 1) / 2), n - 1] : undefined;
+  const xTicks = narrow ? [start, n - 1] : undefined;
   const first = bars[start]!;
   const winRet = start > 0 ? last.close / bars[start - 1]!.close - 1 : last.close / first.close - 1;
 

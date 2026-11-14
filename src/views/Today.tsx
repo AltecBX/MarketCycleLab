@@ -198,7 +198,9 @@ export default function Today() {
               info={`Rules on completed sessions: earnings within ${ws.settings.alertRules.earningsDays} calendar days, a session down ${fmtPct(ws.settings.alertRules.downSession, 0, false)} or more, ${fmtPct(ws.settings.alertRules.drawdown, 0, false)} or more below the 252 session closing high, a new close below the 200 day average.`}
               actions={ackedList.length > 0 ? <button type="button" className="btn ghost small" aria-pressed={showAcked} onClick={() => setShowAcked((v) => !v)}>{showAcked ? 'Hide' : 'Show'} acknowledged ({ackedList.length})</button> : undefined}
             >
-              {open.length === 0 && <p className="muted">No open flags on {s.rows.length} names{ackedList.length ? `. ${ackedList.length} acknowledged` : ''}.</p>}
+              {open.length === 0 && (withheld.length > 0
+                ? <p style={{ color: 'var(--warn)' }}>No flag was raised, but {withheld.length} rule checks could not run. This is not an all clear.</p>
+                : <p className="muted">No open flags on {s.rows.length} names{ackedList.length ? `. ${ackedList.length} acknowledged` : ''}.</p>)}
               <ul className="pf-alerts">
                 {(allOpen ? open : open.slice(0, OPEN_LIMIT)).map((a) => renderAlert(a, false))}
                 {showAcked && ackedList.map((a) => renderAlert(a, true))}
@@ -222,7 +224,7 @@ export default function Today() {
                 <>
                   {closeDates.length === 1 ? `Closes on ${fmtDate(closeDates[0])}. ` : closeDates.length > 1 ? `Close dates differ: ${closeDates.map((d) => fmtDate(d)).join(', ')}. ` : ''}
                   {s.totals.heldCount > 0
-                    ? <>Positions {fmtDollars(s.totals.positionDollars)} across {s.totals.markedCount} of {s.totals.heldCount} held.{s.totals.unmarked.length > 0 && <strong style={{ color: 'var(--warn)' }}> Not marked and not in the total: {s.totals.unmarked.join(', ')}.</strong>} </>
+                    ? <>{s.totals.markedCount === 0 ? 'No position could be marked.' : `Positions ${fmtDollars(s.totals.positionDollars)} across ${s.totals.markedCount} of ${s.totals.heldCount} held.`}{s.totals.unmarked.length > 0 && <strong style={{ color: 'var(--warn)' }}> Not marked and not in the total: {s.totals.unmarked.join(', ')}.</strong>} </>
                     : <>No positions. <Link to="/portfolio">Add positions</Link>. </>}
                   {s.totals.watchOnlyCount} watch only.
                 </>

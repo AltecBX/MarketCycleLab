@@ -60,7 +60,7 @@ export function BenchmarkTable() {
             <thead>
               <tr>
                 <th className="l" scope="col">Symbol</th>
-                <th scope="col">Drawdown</th>
+                <th scope="col">Draw down</th>
                 <th scope="col">Peak</th>
                 <th scope="col">YTD</th>
               </tr>
@@ -73,7 +73,7 @@ export function BenchmarkTable() {
                     {row.symbol === r.instrument.sectorEtf && <span className="faint small"> sector</span>}
                   </td>
                   <td>{isNa(row.point) ? <Missing why={row.why ?? row.point} /> : <Pct v={row.point.drawdown} digits={1} />}</td>
-                  <td className="muted">{isNa(row.point) ? '' : row.point.drawdown === 0 ? 'At peak' : `${fmtDateShort(row.point.peakDate)} ${row.point.peakDate.slice(0, 4)}`}</td>
+                  <td className="muted">{isNa(row.point) ? '' : row.point.drawdown === 0 ? 'At peak' : `${fmtDateShort(row.point.peakDate)} '${row.point.peakDate.slice(2, 4)}`}</td>
                   <td>{row.ytd === null ? <span className="faint">n/a</span> : isNa(row.ytd) ? <Missing why={row.ytd} /> : <Pct v={row.ytd.ret} digits={1} />}</td>
                 </tr>
               ))}

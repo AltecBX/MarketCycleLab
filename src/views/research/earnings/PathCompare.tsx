@@ -5,7 +5,7 @@
  */
 import { useMemo } from 'react';
 import { quantile } from '../../../engine/core/stats';
-import { isNa, type Bar, type Maybe } from '../../../engine/core/types';
+import { isNa, na, type Bar, type Maybe } from '../../../engine/core/types';
 import { calendarOffsetPath, EARNINGS_DEFAULTS, pathEnvelope, type CalendarOffsetPath, type EarningsStudy, type PathEnvelope, type ReactionRow } from '../../../engine/earnings';
 import { LineChart, type LineSeries } from '../../../ui/charts';
 import { Segmented, StateNote } from '../../../ui/components';
@@ -44,7 +44,7 @@ const buildSessions = (study: EarningsStudy, quarter: QuarterChoice, selected: R
   const withPath = group.filter((r) => r.path.length > 1);
   const env = pathEnvelope(group, from, to);
   const allEnv = quarter === 'all' ? env : pathEnvelope(study.rows, from, to);
-  if (withPath.length === 0) return isNa(env) ? env : { unavailable: true, code: 'sample-too-small', detail: 'No report has a price path' };
+  if (withPath.length === 0) return isNa(env) ? env : na('sample-too-small', 'No report has a price path');
   const shown = withPath.slice(-MAX_CONTEXT);
   const series: LineSeries[] = shown
     .filter((r) => r.id !== selected?.id)
@@ -93,7 +93,7 @@ const buildCalendar = (bars: readonly Bar[], study: EarningsStudy, quarter: Quar
     if (isNa(p)) unavailable++;
     else paths.push(p);
   }
-  if (paths.length === 0) return { unavailable: true, code: 'sample-too-small', detail: 'No report has a calendar aligned path' };
+  if (paths.length === 0) return na('sample-too-small', 'No report has a calendar aligned path');
   const shown = paths.slice(-MAX_CONTEXT);
   const series: LineSeries[] = shown
     .filter((p) => p.id !== selected?.id)
