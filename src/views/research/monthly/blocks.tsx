@@ -516,7 +516,7 @@ export function CasesBlock({ study, cohort, symbol }: { study: MonthlyReversalSt
                     {[...sel.m.match.components].sort((a, b) => a.normalized - b.normalized).map((c) => (
                       <div key={c.key} style={{ display: 'contents' }}>
                         <dt>{c.label}</dt>
-                        <dd className="num">{diffText(c)} <span className="faint small">({fmtPct(c.contribution, 0, false)} of distance)</span></dd>
+                        <dd>{diffText(c)} <span className="faint small">({fmtPct(c.contribution, 0, false)} of distance)</span></dd>
                       </div>
                     ))}
                   </dl>
