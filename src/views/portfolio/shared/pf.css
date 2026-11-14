@@ -21,7 +21,8 @@
 .pf-row-top { display: flex; align-items: baseline; gap: 8px; }
 .pf-row-top .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-row-sub { display: flex; flex-wrap: wrap; gap: 2px 12px; color: var(--text-2); font-size: 12.5px; margin-top: 2px; }
-.pf-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--s3); align-items: end; }
+.pf-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--s3); align-items: start; }
+.pf-form > .btn, .pf-form > .row { align-self: center; }
 .pf-form .input, .pf-form .select { width: 100%; }
 .pf-form .wide { grid-column: 1 / -1; }
 .pf-picker { position: relative; min-width: 0; }

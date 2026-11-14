@@ -207,6 +207,7 @@ export function Pager({
             ))}
           </select>
         </label>
+        <span className="dv-nav">
         <button type="button" className="btn small" disabled={page <= 1} onClick={() => onPage(page - 1)}>
           Previous
         </button>
@@ -216,6 +217,7 @@ export function Pager({
         <button type="button" className="btn small" disabled={page >= pageCount} onClick={() => onPage(page + 1)}>
           Next
         </button>
+        </span>
       </div>
     </div>
   );

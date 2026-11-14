@@ -31,3 +31,5 @@
 .ma-list .ma-row-sub { color: var(--text-2); font-size: 12px; }
 .ma-list .ma-row-r { text-align: right; }
 .ma-pager { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s3); flex-wrap: wrap; }
+.ma-odds .num { white-space: normal; }
+.ma-odds-wrap { overflow-x: auto; max-width: 100%; }

@@ -6,7 +6,8 @@ import { Chip, DataTable, Pct, Segmented, Sheet, sortRows, type Column, type Sor
 import { dirClass, fmtDate, fmtPct, fmtPrice, plural } from '../../../ui/format';
 import { usePhone } from './params';
 
-const PAGE = 25;
+const PAGE_DESKTOP = 25;
+const PAGE_PHONE = 12;
 
 const sideWord = (s: Side) => (s === 'above' ? 'Above' : 'Below');
 const sideGlyph = (s: Side) => (s === 'above' ? '▲' : '▼');
@@ -183,6 +184,7 @@ export function RunTable({ runs, window, studySide }: { runs: readonly MaRun[]; 
     return sortRows(extra, cols, sort);
   }, [runs, sideFilter, query, sort, cols]);
 
+  const PAGE = phone ? PAGE_PHONE : PAGE_DESKTOP;
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
   const p = Math.min(page, pages - 1);
   const rows = filtered.slice(p * PAGE, p * PAGE + PAGE);
