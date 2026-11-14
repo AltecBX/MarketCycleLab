@@ -234,7 +234,7 @@ export function RangesTab({
               <>
                 <div className="row" style={{ marginBottom: 8 }}>
                   <Chip tone={comp.data.compressed ? 'gold' : undefined}>{comp.data.compressed ? 'Compressed' : 'Not compressed'}</Chip>
-                  <span className="muted small">for {comp.data.elapsedSessions} sessions through {fmtDate(comp.data.date)}</span>
+                  <span className="muted small">for {comp.data.elapsedSessions} {comp.data.elapsedSessions === 1 ? 'session' : 'sessions'} through {fmtDate(comp.data.date)}</span>
                 </div>
                 <div className="stats">
                   <Stat label="1M over 3M width" value={fmtPct(comp.data.ratio, 0, false)} sub={`threshold ${fmtPct(comp.data.threshold, 0, false)}`} />

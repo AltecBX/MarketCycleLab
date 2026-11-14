@@ -114,10 +114,10 @@ function HorizonCard({ h }: { h: SignalHorizonScore }) {
             sub={h.baseline ? `${h.baseline.hits} of ${h.baseline.n}` : 'No matured earlier cases'}
           />
           <Stat
-            label="Brier, model vs baseline"
+            label="Brier, model"
             info="Mean squared error of the held out forecasts on the same dates and targets. Lower is better."
-            value={ev && ev.brier !== null && ev.baselineBrier !== null ? `${ev.brier.toFixed(4)} vs ${ev.baselineBrier.toFixed(4)}` : 'n/a'}
-            sub={ev ? `${fmtInt(ev.forecasts)} forecasts scored` : 'Not evaluated'}
+            value={ev && ev.brier !== null ? ev.brier.toFixed(4) : 'n/a'}
+            sub={ev ? `${ev.baselineBrier !== null ? `Baseline ${ev.baselineBrier.toFixed(4)}. ` : ''}${fmtInt(ev.forecasts)} forecasts scored` : 'Not evaluated'}
           />
           <Stat label="Blocks beating baseline" value={ev ? `${blocksBeat} of ${blocksReady}` : 'n/a'} sub={ev ? `${ev.blocks.length} blocks, ${blocksReady} ready` : undefined} />
           <Stat
@@ -130,7 +130,7 @@ function HorizonCard({ h }: { h: SignalHorizonScore }) {
         </div>}
         {ev && (
           <div className="small muted">
-            History from {fmtDate(ev.coverage.historyFrom)}. Forecasts scored {fmtDate(ev.coverage.firstForecast)} to {fmtDate(ev.coverage.lastForecast)}.
+            History from {fmtDate(ev.coverage.historyFrom)}. {ev.coverage.firstForecast ? `Forecasts scored ${fmtDate(ev.coverage.firstForecast)} to ${fmtDate(ev.coverage.lastForecast)}.` : 'No forecasts scored yet.'}
           </div>
         )}
         {h.comparable && (

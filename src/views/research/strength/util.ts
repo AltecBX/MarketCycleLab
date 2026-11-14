@@ -56,7 +56,7 @@ export const BASIS_LABEL: Record<RangeBasis, string> = {
 export const num = (v: Maybe<number> | null | undefined): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
 /** Short window label for table cells. */
-export const shortWindow = (k: WindowKey | BreakWindowKey): string => (k.endsWith('D') ? `${k.slice(0, -1)} sess.` : k);
+export const shortWindow = (k: WindowKey | BreakWindowKey): string => (/^\d+D$/.test(k) ? `${k.slice(0, -1)} sess.` : k);
 
 export interface PriorLevel {
   level: number;
