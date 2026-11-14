@@ -76,12 +76,12 @@ export function Peers({ subject }: { subject: Maybe<ForwardPeRecord> }) {
           label="Peer median forward P/E"
           info="Needs at least three peers with a compatible snapshot within seven days."
           value={!ctx ? '…' : isNa(ctx) ? <Missing why={ctx} /> : fmtMultiple(ctx.median)}
-          sub={ctx && !isNa(ctx) ? `${ctx.n} peers, ${fmtMultiple(ctx.min)} to ${fmtMultiple(ctx.max)}` : ctx && isNa(ctx) ? ctx.detail : undefined}
+          sub={ctx && !isNa(ctx) ? `${ctx.n} peers, ${fmtMultiple(ctx.min)} to ${fmtMultiple(ctx.max)}` : ctx && isNa(ctx) ? ctx.detail?.replace(/\b\d{4}-\d{2}-\d{2}\b/g, (d) => fmtDate(d)) : undefined}
         />
         <Stat
           label={`${r.symbol} within peers`}
           info="Midrank percentile of this stock's multiple inside the peer multiples. Higher means a higher multiple than more peers."
-          value={!ctx ? '…' : isNa(ctx) ? <span className="faint">n/a</span> : isNa(ctx.subjectPercentile) ? <Missing why={ctx.subjectPercentile} /> : `${fmtPct(ctx.subjectPercentile, 0, false)} percentile`}
+          value={!ctx ? '…' : isNa(ctx) ? <span className="faint">n/a</span> : isNa(ctx.subjectPercentile) ? <Missing why={ctx.subjectPercentile} /> : ctx.subjectPercentile <= 0 ? 'Below every peer' : ctx.subjectPercentile >= 1 ? 'Above every peer' : `${fmtPct(ctx.subjectPercentile, 0, false)} percentile`}
           sub={ctx && !isNa(ctx) && ctx.excluded.length ? `${ctx.excluded.length} left out: ${ctx.excluded.map((e) => e.symbol).join(', ')}` : undefined}
         />
       </div>
@@ -91,7 +91,7 @@ export function Peers({ subject }: { subject: Maybe<ForwardPeRecord> }) {
         <DataTable rows={sortRows(peers.data, cols, sort)} cols={cols} sort={sort} onSort={setSort} rowKey={(p) => p.symbol} selectedKey={r.symbol} caption={`${group.name} members on the same valuation basis`} />
       )}
       <p className="faint small">
-        <Chip>{group.kind === 'curated-theme' ? 'Curated theme' : group.kind}</Chip> {group.basis} A theme is a research grouping, not evidence of co-movement. An asterisk marks a prior period figure.
+        <Chip>{group.kind === 'curated-theme' ? 'Curated theme' : group.kind}</Chip> {group.basis.replace(/^Curated theme\.\s*/, '')} A theme is a research grouping, not evidence of co-movement. An asterisk marks a prior period figure.
       </p>
     </div>
   );

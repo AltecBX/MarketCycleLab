@@ -1,0 +1,20 @@
+/* Earnings calendar. Prefix cal-. */
+.cal-controls { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); align-items: flex-end; }
+.cal-toggle[aria-pressed='true'] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.cal-day { border-top: 1px solid var(--border); padding: 10px 0 4px; }
+.cal-day:first-child { border-top: 0; padding-top: 0; }
+.cal-day-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--s3); margin-bottom: 4px; }
+.cal-day-head h3 { font-size: 14px; }
+.cal-rows { list-style: none; margin: 0; padding: 0; }
+.cal-rows li { display: grid; grid-template-columns: 64px minmax(0, 1.6fr) minmax(0, 1.5fr) 80px minmax(0, 1fr); gap: 4px var(--s3); align-items: center; padding: 7px 6px; border-radius: 6px; min-height: 40px; }
+.cal-rows li:hover { background: var(--surface-2); }
+.cal-sym { font-weight: 700; }
+.cal-name { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.cal-cap { text-align: right; }
+.cal-react { color: var(--text-3); font-size: 12px; }
+@media (max-width: 700px) {
+  .cal-rows li { grid-template-columns: 58px minmax(0, 1fr) auto; }
+  .cal-tags { grid-column: 1 / -1; grid-row: 2; }
+  .cal-react { grid-column: 1 / -1; grid-row: 3; }
+}

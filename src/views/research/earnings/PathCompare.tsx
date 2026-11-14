@@ -10,6 +10,9 @@ import { calendarOffsetPath, EARNINGS_DEFAULTS, pathEnvelope, type CalendarOffse
 import { LineChart, type LineSeries } from '../../../ui/charts';
 import { Segmented, StateNote } from '../../../ui/components';
 import { fmtDate, fmtPct, plural, reasonDetail } from '../../../ui/format';
+import { useIsNarrow } from './util';
+
+const nameOf = (r: ReactionRow): string => (r.event.fiscalPeriod ? `${r.event.fiscalPeriod}, ${fmtDate(r.event.date)}` : fmtDate(r.event.date));
 
 export type Align = 'sessions' | 'calendar';
 export type QuarterChoice = 'all' | 1 | 2 | 3 | 4;
@@ -62,11 +65,11 @@ const buildSessions = (study: EarningsStudy, quarter: QuarterChoice, selected: R
     footer.push(endpointLine(allEnv, 'All reports', `${signed(to)} sessions`));
   }
   if (selected && selected.path.length > 1) {
-    series.push({ id: 'selected', label: selected.label, color: SELECTED_COLOR, width: 2.2, points: selected.path.map((p) => ({ x: p.offset, y: p.ret })) });
+    series.push({ id: 'selected', label: nameOf(selected), color: SELECTED_COLOR, width: 2.2, points: selected.path.map((p) => ({ x: p.offset, y: p.ret })) });
     if (!selected.pathComplete) {
       const a = selected.path[0]!.offset;
       const b = selected.path[selected.path.length - 1]!.offset;
-      footer.push(`${selected.label} has a truncated path. It covers sessions ${signed(a)} to ${signed(b)} and is not part of the median.`);
+      footer.push(`${nameOf(selected)} has a truncated path. It covers sessions ${signed(a)} to ${signed(b)} and is not part of the median.`);
     }
   }
   if (withPath.length > shown.length) footer.push(`Showing the ${shown.length} most recent of ${withPath.length} individual paths.`);
@@ -109,9 +112,9 @@ const buildCalendar = (bars: readonly Bar[], study: EarningsStudy, quarter: Quar
   }
   const sel = selected ? paths.find((p) => p.id === selected.id) : undefined;
   if (sel) {
-    series.push({ id: 'selected', label: sel.label, color: SELECTED_COLOR, width: 2.2, points: sel.tradingPoints.map((q) => ({ x: q.offset, y: q.ret })) });
+    series.push({ id: 'selected', label: selected ? nameOf(selected) : sel.label, color: SELECTED_COLOR, width: 2.2, points: sel.tradingPoints.map((q) => ({ x: q.offset, y: q.ret })) });
     const carried = sel.points.length - sel.tradingPoints.length;
-    footer.push(`${sel.label}: base close ${fmtDate(sel.baseDate)}. ${carried} of ${sel.points.length} calendar dates are weekends or holidays.${sel.truncatedAt ? ` Truncated at ${fmtDate(sel.truncatedAt)}.` : ''}`);
+    footer.push(`${selected ? nameOf(selected) : sel.label}: base close ${fmtDate(sel.baseDate)}. ${carried} of ${sel.points.length} calendar dates are weekends or holidays.${sel.truncatedAt ? ` Truncated at ${fmtDate(sel.truncatedAt)}.` : ''}`);
   }
   footer.push('Calendar alignment is for display. Non trading dates repeat the prior close and are never return inputs. Lines connect trading dates only.');
   if (unavailable) footer.push(`${plural(unavailable, 'report')} left out because history does not reach the base date.`);
@@ -149,6 +152,7 @@ export function PathCompare({
     () => (align === 'sessions' ? buildSessions(study, quarter, selected) : buildCalendar(bars, study, quarter, selected)),
     [align, bars, study, quarter, selected],
   );
+  const narrow = useIsNarrow();
   const quarters = useMemo(() => {
     const counts = new Map<number, number>();
     for (const r of study.rows) if (r.fiscalQuarter !== null) counts.set(r.fiscalQuarter, (counts.get(r.fiscalQuarter) ?? 0) + 1);
@@ -187,7 +191,7 @@ export function PathCompare({
         <LineChart
           series={built.series}
           envelope={built.envelope}
-          xLabel={built.xLabel}
+          xLabel={narrow ? (x) => (x === 0 ? (align === 'sessions' ? 'Reaction' : 'Release') : signed(x)) : built.xLabel}
           xTicks={built.xTicks}
           yFormat={(y) => fmtPct(y, 1)}
           ariaLabel={built.aria}

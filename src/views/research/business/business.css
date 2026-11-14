@@ -6,3 +6,6 @@
 .bz-list li { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s3); align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .bz-list .bz-main { flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .bz-note { width: 100%; min-height: 84px; resize: vertical; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border-strong); background: var(--surface); }
+
+.bz-cf { display: grid; gap: var(--s4); grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
+@media (max-width: 900px) { .bz-cf { grid-template-columns: minmax(0, 1fr); } }

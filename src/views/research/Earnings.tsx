@@ -6,7 +6,7 @@ import { researchPath } from '../../app/routes';
 import { invalidate } from '../../data/client';
 import { isNa } from '../../engine/core/types';
 import { earningsStudy, fiscalQuarterOf, nextEarnings } from '../../engine/earnings';
-import { Card, Disclosure, Freq, Pct, Stat, StateNote } from '../../ui/components';
+import { Card, Disclosure, Pct, Stat, StateNote } from '../../ui/components';
 import { fmtDate, fmtPct, plural, reasonDetail } from '../../ui/format';
 import './earnings/earnings.css';
 import { NextReport } from './earnings/NextReport';
@@ -76,7 +76,11 @@ export default function Earnings() {
             >
               <div className="stats" style={{ marginBottom: 14 }}>
                 <Stat label="Typical first move size" info="Median absolute move of the first reacting close versus the prior close. Direction ignored." value={study.magnitude.distribution ? fmtPct(study.magnitude.distribution.median, 1, false) : 'n/a'} sub={`${study.magnitude.n} reports`} />
-                <Stat label="First close higher" value={<Freq p={study.reaction.positive} />} />
+                <Stat
+                  label="First close higher"
+                  value={study.reaction.positive ? fmtPct(study.reaction.positive.rate, 0, false) : 'n/a'}
+                  sub={study.reaction.positive ? `${study.reaction.positive.hits} of ${study.reaction.positive.n} reports, 95% interval ${fmtPct(study.reaction.positive.lo, 0, false)} to ${fmtPct(study.reaction.positive.hi, 0, false)}` : undefined}
+                />
                 <Stat label="Median runup, 20 sessions before" value={<Pct v={study.runups[20]?.distribution?.median} digits={1} />} sub={`${study.runups[20]?.n ?? 0} reports`} />
                 <Stat label="Median drift, 20 sessions after" info="Measured from the first reacting close, so the reaction itself is not counted." value={<Pct v={study.drift[20]?.distribution?.median} digits={1} />} sub={`${study.drift[20]?.n ?? 0} matured reports`} />
               </div>

@@ -12,6 +12,9 @@ import './business/business.css';
 import { Checkpoints } from './business/Checkpoints';
 import { Peers } from './business/Peers';
 
+/** Engine reasons carry ISO dates. Show them in the display date format. */
+export const humanDates = (t: string | undefined): string | undefined => t?.replace(/\b\d{4}-\d{2}-\d{2}\b/g, (d) => fmtDate(d));
+
 const SCOPE_LABEL: Record<string, string> = { quarter: 'Quarter', 'fiscal-year': 'Fiscal year', ttm: 'Trailing year', ytd: 'Year to date' };
 
 export default function Business() {
@@ -66,7 +69,7 @@ export default function Business() {
                 <Stat
                   label="Forward P/E, FY1"
                   value={isNa(pe) ? <Missing why={pe} /> : fmtMultiple(pe.value)}
-                  sub={isNa(pe) ? pe.detail : `${fmtPrice(pe.price)} close on ${fmtDate(pe.priceDate)} over EPS ${fmtNum(pe.eps)}`}
+                  sub={isNa(pe) ? humanDates(pe.detail) : `${fmtPrice(pe.price)} close on ${fmtDate(pe.priceDate)} over EPS ${fmtNum(pe.eps)}`}
                 />
                 <Stat
                   label="Trailing P/E"
@@ -78,7 +81,7 @@ export default function Business() {
                   label="Versus own history"
                   info="Percentile of today's multiple inside earlier captured multiples. Needs ten compatible captures. Closing prices never backfill a past estimate."
                   value={isNa(own) ? <Chip>{own.code === 'sample-too-small' ? 'Collecting' : 'n/a'}</Chip> : `${Math.round(own.percentile * 100)}th percentile`}
-                  sub={isNa(own) ? (own.code === 'sample-too-small' ? `${own.detail} No capture archive is stored in this build.` : undefined) : `${own.n} captures, ${fmtDate(own.from)} to ${fmtDate(own.to)}`}
+                  sub={isNa(own) ? (own.code === 'sample-too-small' ? `${humanDates(own.detail)} No capture archive is stored in this build.` : undefined) : `${own.n} captures, ${fmtDate(own.from)} to ${fmtDate(own.to)}`}
                 />
               </div>
               {!isNa(pe) && (
@@ -101,7 +104,7 @@ export default function Business() {
                   value={isNa(facts.fcf) ? <Missing why={facts.fcf} /> : fmtMoney(facts.fcf.value, true)}
                   sub={isNa(facts.fcf) ? undefined : `${SCOPE_LABEL[facts.fcf.scope]} to ${fmtDate(facts.fcf.periodEnd)}`}
                 />
-                <Stat label="Trailing year free cash flow" info="Sum of the four newest consecutive standalone quarters, all with a derivable figure." value={isNa(ttm) ? <Missing why={ttm} /> : fmtMoney(ttm.value, true)} sub={isNa(ttm) ? ttm.detail : `Four quarters to ${fmtDate(ttm.periodEnd)}`} />
+                <Stat label="Trailing year free cash flow" info="Sum of the four newest consecutive standalone quarters, all with a derivable figure." value={isNa(ttm) ? <Missing why={ttm} /> : fmtMoney(ttm.value, true)} sub={isNa(ttm) ? humanDates(ttm.detail) : `Four quarters to ${fmtDate(ttm.periodEnd)}`} />
               </div>
               {!isNa(facts.fcf) && !facts.fcf.isLatestPeriod && (
                 <div style={{ marginTop: 10 }}>
@@ -116,7 +119,7 @@ export default function Business() {
             {periods.length === 0 ? (
               <StateNote>{isNa(fund) ? reasonDetail(fund) : isNa(fund.cashFlow) ? reasonDetail(fund.cashFlow) : 'No report was filed by the frozen date.'}</StateNote>
             ) : (
-              <div className="grid-2" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)' }}>
+              <div className="bz-cf">
                 <BarChart
                   bars={[...periods].reverse().map((p) => ({ key: p.periodEnd, label: fmtDateShort(p.periodEnd), value: p.freeCashFlow, detail: `${SCOPE_LABEL[p.scope]} to ${fmtDate(p.periodEnd)}` }))}
                   yFormat={(y) => fmtMoney(y, true)}
