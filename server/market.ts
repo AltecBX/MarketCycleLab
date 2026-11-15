@@ -5,6 +5,8 @@
  *   adjusted and not dividend adjusted, which is the basis every price study expects.
  * - Earnings dates and results: Unusual Whales `/api/earnings/{ticker}`, authorized with
  *   UW_API_KEY from the server environment.
+ * - Fundamentals: Yahoo Finance quote summary (FY1 estimate, market cap, beta) and the
+ *   fundamentals timeseries (quarterly cash, operating cash flow, capex, free cash flow).
  *
  * Every response is validated. A history that is not daily, has bad rows, or includes a session
  * that has not closed yet is cut or rejected, never passed through.
@@ -13,8 +15,10 @@ import { isSession, latestCompletedSession } from '../src/engine/core/calendar.t
 import type { Bar } from '../src/engine/core/types.ts';
 
 const UA = 'Mozilla/5.0 (compatible; research-client)';
-const TTL_MS = 10 * 60 * 1000;
-const cache = new Map<string, { at: number; body: unknown }>();
+const memory = new Map<string, { at: number; body: string }>();
+
+/** Edge cache when running on Cloudflare, in-process map elsewhere. Only 200 responses are kept. */
+const edgeCache = (): Cache | undefined => (globalThis as unknown as { caches?: { default?: Cache } }).caches?.default;
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
@@ -126,12 +130,128 @@ export const parseUwEarnings = (raw: unknown, symbol: string, nowIso: string): E
   return { symbol, events, provider: 'Unusual Whales earnings', capturedAt: nowIso };
 };
 
-const cached = async (key: string, load: () => Promise<Response>): Promise<Response> => {
-  const hit = cache.get(key);
-  if (hit && Date.now() - hit.at < TTL_MS) return json(hit.body);
+const cached = async (key: string, ttlSec: number, load: () => Promise<Response>): Promise<Response> => {
+  const edge = edgeCache();
+  const cacheKey = `https://market-cache.internal/${encodeURIComponent(key)}`;
+  if (edge) {
+    const hit = await edge.match(cacheKey);
+    if (hit) return json(JSON.parse(await hit.text()));
+  } else {
+    const hit = memory.get(key);
+    if (hit && Date.now() - hit.at < ttlSec * 1000) return json(JSON.parse(hit.body));
+  }
   const res = await load();
-  if (res.status === 200) cache.set(key, { at: Date.now(), body: await res.clone().json() });
+  if (res.status === 200) {
+    const body = await res.clone().text();
+    if (edge) await edge.put(cacheKey, new Response(body, { headers: { 'content-type': 'application/json', 'cache-control': `max-age=${ttlSec}` } }));
+    else memory.set(key, { at: Date.now(), body });
+  }
   return res;
+};
+
+/* ---------------------------------------------------------------- Yahoo session (crumb) */
+
+let yahooSession: { cookie: string; crumb: string; at: number } | null = null;
+
+const readSetCookies = (h: Headers): string[] => {
+  const all = (h as Headers & { getSetCookie?: () => string[] }).getSetCookie?.();
+  if (all && all.length) return all;
+  const one = h.get('set-cookie');
+  return one ? one.split(/,(?=\s*[A-Za-z0-9_]+=)/) : [];
+};
+
+/** Yahoo's quote summary needs a cookie and a matching crumb. Both are cached for an hour. */
+const yahooCrumb = async (force = false): Promise<{ cookie: string; crumb: string }> => {
+  if (!force && yahooSession && Date.now() - yahooSession.at < 60 * 60 * 1000) return yahooSession;
+  const r = await fetch('https://fc.yahoo.com/', { headers: { 'user-agent': UA }, redirect: 'manual' });
+  const cookie = readSetCookies(r.headers).map((c) => c.split(';')[0]!.trim()).filter(Boolean).join('; ');
+  if (!cookie) throw new Error('Estimate source did not issue a session cookie');
+  const c = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', { headers: { 'user-agent': UA, cookie } });
+  const crumb = (await c.text()).trim();
+  if (!c.ok || !crumb || crumb.length > 40 || crumb.includes('<')) throw new Error(`Estimate source refused a session (${c.status})`);
+  yahooSession = { cookie, crumb, at: Date.now() };
+  return yahooSession;
+};
+
+const raw = (v: unknown): number | null => {
+  const x = (v as { raw?: unknown } | null | undefined)?.raw;
+  return typeof x === 'number' && Number.isFinite(x) ? x : null;
+};
+
+export interface FundamentalsPayload {
+  symbol: string;
+  currency: string;
+  asOf: string;
+  marketCap: number | null;
+  beta: number | null;
+  sharesOutstanding: number | null;
+  /** FY1 (current fiscal year) consensus EPS and the fiscal year end it refers to. */
+  forwardEps: { value: number; fiscalYearEnd: string; analysts: number | null } | null;
+  /** Cash and cash equivalents at the latest quarter end. */
+  cash: { value: number; asOf: string } | null;
+  /** Standalone quarters, newest first. Capex is a positive outflow. */
+  quarters: { periodEnd: string; operatingCashFlow: number | null; capex: number | null; freeCashFlow: number | null }[];
+  provider: string;
+  capturedAt: string;
+}
+
+export const parseYahooFundamentals = (summary: unknown, series: unknown, symbol: string, asOf: string, nowIso: string): FundamentalsPayload | { error: string } => {
+  const res = (summary as { quoteSummary?: { result?: Record<string, unknown>[] } })?.quoteSummary?.result?.[0];
+  if (!res) return { error: 'No fundamentals for this symbol' };
+  const price = (res.price ?? {}) as Record<string, unknown>;
+  const stats = (res.defaultKeyStatistics ?? {}) as Record<string, unknown>;
+  const trend = ((res.earningsTrend as { trend?: Record<string, unknown>[] } | undefined)?.trend ?? []).find((t) => t.period === '0y');
+  const est = trend ? raw((trend.earningsEstimate as Record<string, unknown> | undefined)?.avg) : null;
+  const fye = trend && typeof trend.endDate === 'string' ? trend.endDate.slice(0, 10) : null;
+  const byType = new Map<string, Map<string, number>>();
+  for (const r of ((series as { timeseries?: { result?: Record<string, unknown>[] } })?.timeseries?.result ?? [])) {
+    const type = ((r.meta as { type?: string[] } | undefined)?.type ?? [])[0];
+    if (!type) continue;
+    const m = new Map<string, number>();
+    for (const row of ((r[type] as ({ asOfDate?: string; periodType?: string; reportedValue?: { raw?: number } } | null)[] | undefined) ?? [])) {
+      if (row && row.periodType === '3M' && typeof row.asOfDate === 'string' && typeof row.reportedValue?.raw === 'number') m.set(row.asOfDate, row.reportedValue.raw);
+    }
+    byType.set(type, m);
+  }
+  const g = (t: string, d: string) => byType.get(t)?.get(d) ?? null;
+  const ends = new Set<string>();
+  for (const t of ['quarterlyOperatingCashFlow', 'quarterlyFreeCashFlow', 'quarterlyCapitalExpenditure']) for (const d of byType.get(t)?.keys() ?? []) ends.add(d);
+  const quarters = [...ends].sort().reverse().map((d) => {
+    const capexSigned = g('quarterlyCapitalExpenditure', d);
+    return { periodEnd: d, operatingCashFlow: g('quarterlyOperatingCashFlow', d), capex: capexSigned === null ? null : Math.abs(capexSigned), freeCashFlow: g('quarterlyFreeCashFlow', d) };
+  });
+  const cashDates = [...(byType.get('quarterlyCashAndCashEquivalents')?.keys() ?? [])].sort();
+  const cashDate = cashDates[cashDates.length - 1];
+  return {
+    symbol,
+    currency: typeof price.currency === 'string' ? price.currency : 'USD',
+    asOf,
+    marketCap: raw(price.marketCap),
+    beta: raw(stats.beta),
+    sharesOutstanding: raw(stats.sharesOutstanding),
+    forwardEps: est !== null && fye ? { value: est, fiscalYearEnd: fye, analysts: raw((trend!.earningsEstimate as Record<string, unknown>).numberOfAnalysts) } : null,
+    cash: cashDate ? { value: g('quarterlyCashAndCashEquivalents', cashDate)!, asOf: cashDate } : null,
+    quarters,
+    provider: 'Yahoo Finance quote summary and fundamentals timeseries',
+    capturedAt: nowIso,
+  };
+};
+
+const loadFundamentals = async (symbol: string, now: string): Promise<Response> => {
+  const sym = encodeURIComponent(symbol);
+  const summary = async (force: boolean) => {
+    const { cookie, crumb } = await yahooCrumb(force);
+    return fetch(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${sym}?modules=price,defaultKeyStatistics,earningsTrend&crumb=${encodeURIComponent(crumb)}`, { headers: { 'user-agent': UA, cookie } });
+  };
+  let s = await summary(false);
+  if (s.status === 401 || s.status === 403) s = await summary(true);
+  if (s.status === 404) return json({ error: `${symbol} has no fundamentals at the source` }, 404);
+  if (!s.ok) return json({ error: `Fundamentals source answered ${s.status}` }, 502);
+  const types = ['quarterlyOperatingCashFlow', 'quarterlyCapitalExpenditure', 'quarterlyFreeCashFlow', 'quarterlyCashAndCashEquivalents'].join(',');
+  const t = await fetch(`https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/${sym}?symbol=${sym}&type=${types}&period1=${Math.floor(Date.now() / 1000) - 3 * 366 * 86400}&period2=${Math.floor(Date.now() / 1000)}`, { headers: { 'user-agent': UA } });
+  const seriesBody = t.ok ? await t.json() : null;
+  const out = parseYahooFundamentals(await s.json(), seriesBody, symbol, latestCompletedSession(now), now);
+  return 'error' in out ? json(out, 502) : json(out);
 };
 
 /** Handle a `/api/market/*` request. Returns null for any other path. */
@@ -142,7 +262,7 @@ export const handleMarket = async (url: URL, env: { UW_API_KEY?: string }): Prom
   const now = new Date().toISOString();
   try {
     if (url.pathname === '/api/market/daily') {
-      return await cached(`daily:${symbol}`, async () => {
+      return await cached(`daily:${symbol}`, 30 * 60, async () => {
         const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=0&period2=9999999999&interval=1d&events=split`, { headers: { 'user-agent': UA } });
         if (r.status === 404) return json({ error: `${symbol} is not known to the price source` }, 404);
         if (!r.ok) return json({ error: `Price source answered ${r.status}` }, 502);
@@ -152,12 +272,15 @@ export const handleMarket = async (url: URL, env: { UW_API_KEY?: string }): Prom
     }
     if (url.pathname === '/api/market/earnings') {
       if (!env.UW_API_KEY) return json({ error: 'UW_API_KEY is not set on the server' }, 503);
-      return await cached(`earnings:${symbol}`, async () => {
+      return await cached(`earnings:${symbol}`, 60 * 60, async () => {
         const r = await fetch(`https://api.unusualwhales.com/api/earnings/${encodeURIComponent(symbol)}`, { headers: { authorization: `Bearer ${env.UW_API_KEY}`, accept: 'application/json' } });
         if (!r.ok) return json({ error: `Earnings source answered ${r.status}` }, 502);
         const out = parseUwEarnings(await r.json(), symbol, now);
         return 'error' in out ? json(out, 502) : json(out);
       });
+    }
+    if (url.pathname === '/api/market/fundamentals') {
+      return await cached(`fund:${symbol}`, 6 * 60 * 60, () => loadFundamentals(symbol, now));
     }
     return json({ error: 'not found' }, 404);
   } catch (e) {

@@ -10,7 +10,7 @@ import { FixtureProvider } from './fixtureProvider';
 import { LiveProvider } from './liveProvider';
 
 const fixture = new FixtureProvider();
-/** `npm run dev:live` sets VITE_DATA=live. Anything else runs the synthetic fixture. */
+/** Production builds and `npm run dev:live` use live data (.env.production). `--mode fixture` uses synthetic data. */
 const provider: DataProvider = import.meta.env?.VITE_DATA === 'live' ? new LiveProvider() : fixture;
 export const getProvider = (): DataProvider => provider;
 export const getFixtureProvider = (): FixtureProvider => fixture;

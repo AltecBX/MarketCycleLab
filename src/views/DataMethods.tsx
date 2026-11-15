@@ -45,11 +45,11 @@ export default function DataMethods() {
                 <div style={{ flex: '1 1 260px', minWidth: 0 }}>
                   <div className="row" style={{ gap: 8 }}>
                     <strong>{s.label}</strong>
-                    <Chip tone={s.state === 'ok' ? 'up' : s.state === 'failed' ? 'down' : 'warn'}>{s.state === 'ok' ? 'Working' : s.state === 'failed' ? 'Failed' : s.state === 'stale' ? 'Stale' : 'Degraded'}</Chip>
+                    <Chip tone={s.state === 'ok' ? 'up' : s.state === 'failed' ? 'down' : s.state === 'idle' ? undefined : 'warn'}>{s.state === 'ok' ? 'Working' : s.state === 'failed' ? 'Failed' : s.state === 'stale' ? 'Stale' : s.state === 'idle' ? 'Not checked yet' : 'Degraded'}</Chip>
                     {s.kind === 'synthetic-fixture' && <Chip tone="warn">Synthetic</Chip>}
                   </div>
                   <div className="muted small">Feeds {s.feeds.join(', ')}</div>
-                  {s.state !== 'ok' && (
+                  {s.state !== 'ok' && s.state !== 'idle' && (
                     <div className="small" style={{ marginTop: 4 }}>
                       <span className="down">{s.error}.</span> {s.fallback} Last good capture covers through {fmtDate(s.dataThrough)}.
                     </div>
@@ -103,7 +103,9 @@ export default function DataMethods() {
       </Card>
       <Card title="Known gaps" sub="What this build cannot show yet, and why.">
         <ul style={{ margin: 0, paddingLeft: 18 }} className="muted">
-          <li>No live market data provider is connected. Live quotes, option chains and implied moves are unavailable.</li>
+          <li>Prices are completed daily sessions from the Yahoo Finance chart endpoint, an unofficial free source that can be delayed or revised. There are no live intraday quotes.</li>
+          <li>Option chains, implied moves and IV history are not connected, so the Weekly Range engines stay unavailable.</li>
+          <li>Earnings dates come from Unusual Whales without a "known since" time, so model inputs treat them as not known in advance.</li>
           <li>Company logos need licensed artwork. Every symbol shows a ticker badge instead.</li>
           <li>Point-in-time estimate revisions, historical index membership and full-market breadth have no source.</li>
           <li>Model thresholds that the specification delegates to the reference source are marked proposed until reconciled.</li>

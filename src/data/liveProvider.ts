@@ -2,8 +2,8 @@
  * Live provider. Talks only to this app's own `/api/market` routes. The server holds provider
  * access. Identity and curated groups come from the same universe file as fixture mode.
  *
- * Built so far: daily history (Yahoo Finance chart) and earnings (Unusual Whales). Fundamentals,
- * estimates and the cross-stock earnings calendar have no live source yet and say so.
+ * Sources: daily history and fundamentals from Yahoo Finance, earnings from Unusual Whales.
+ * The cross-stock earnings calendar is assembled from per-stock earnings for the loaded universe.
  */
 import { latestCompletedSession } from '../engine/core/calendar';
 import { buildCoverage } from '../engine/core/series';
@@ -18,6 +18,18 @@ interface DailyPayload {
   currency: string;
   type: 'stock' | 'etf' | 'index';
   bars: DailySeries['bars'];
+  provider: string;
+  capturedAt: string;
+}
+interface FundamentalsPayload {
+  currency: string;
+  asOf: string;
+  marketCap: number | null;
+  beta: number | null;
+  sharesOutstanding: number | null;
+  forwardEps: { value: number; fiscalYearEnd: string; analysts: number | null } | null;
+  cash: { value: number; asOf: string } | null;
+  quarters: { periodEnd: string; operatingCashFlow: number | null; capex: number | null; freeCashFlow: number | null }[];
   provider: string;
   capturedAt: string;
 }
@@ -132,27 +144,75 @@ export class LiveProvider implements DataProvider {
 
   async getFundamentals(instrumentId: string): Promise<Maybe<Fundamentals>> {
     const inst = this.find((i) => i.id === instrumentId);
-    if (inst && inst.type !== 'stock' && inst.type !== 'adr') return na('not-applicable', 'Funds have no issuer fundamentals here');
-    return na('no-coverage', 'No live fundamentals source is connected yet');
+    if (!inst) return na('unknown-symbol');
+    if (inst.type !== 'stock' && inst.type !== 'adr') return na('not-applicable', 'Funds have no issuer fundamentals here');
+    const r = await get<FundamentalsPayload>(`/api/market/fundamentals?symbol=${encodeURIComponent(inst.symbol)}`);
+    if (!r.ok) {
+      this.status.set('fundamentals', { ok: false, at: new Date().toISOString(), error: r.error });
+      return na('source-failed', r.error);
+    }
+    const f = r.value;
+    this.status.set('fundamentals', { ok: true, at: f.capturedAt });
+    const source: SourceCapture = { provider: f.provider, kind: 'provider', capturedAt: f.capturedAt, version: 'yahoo-fundamentals-v1', note: 'Unofficial free source. Filing dates are not provided, so period ends are shown.' };
+    const dated = (value: number | null, asOf: string) => (value === null ? na('no-coverage', 'Not reported by the source') : { value, asOf, source });
+    const periods = f.quarters
+      .filter((q) => q.operatingCashFlow !== null && q.capex !== null)
+      .map((q) => ({
+        scope: 'quarter' as const,
+        periodEnd: q.periodEnd,
+        // The source gives no filing date. The period end stands in, which is earlier than the true filing.
+        filedAt: q.periodEnd,
+        currency: f.currency,
+        operatingCashFlow: q.operatingCashFlow!,
+        capex: q.capex!,
+        freeCashFlow: q.freeCashFlow,
+        source,
+      }));
+    return {
+      instrumentId: inst.id,
+      currency: f.currency,
+      marketCap: dated(f.marketCap, f.asOf),
+      sharesOutstanding: dated(f.sharesOutstanding, f.asOf),
+      forwardEps: f.forwardEps
+        ? { value: f.forwardEps.value, asOf: f.asOf, horizon: 'FY1', fiscalYearEnd: f.forwardEps.fiscalYearEnd, currency: f.currency, source }
+        : na('no-coverage', 'No FY1 consensus estimate at the source'),
+      cash: f.cash ? { value: f.cash.value, asOf: f.cash.asOf, source } : na('no-coverage', 'No reported cash balance at the source'),
+      cashFlow: periods.length ? periods : na('no-coverage', 'No quarterly cash flow at the source'),
+      beta: f.beta ?? na('no-coverage', 'No beta at the source'),
+    };
   }
 
   async getGroups(): Promise<TradingGroup[]> {
     return GROUPS;
   }
 
-  async getEarningsCalendar(): Promise<Maybe<CalendarEntry[]>> {
-    return na('no-coverage', 'The cross-stock earnings calendar has no live source yet');
+  /** Built from each loaded stock's own earnings dates, six requests at a time. */
+  async getEarningsCalendar(from: string, to: string): Promise<Maybe<CalendarEntry[]>> {
+    const stocks = (await this.listInstruments()).filter((i) => i.type === 'stock' || i.type === 'adr');
+    const out: CalendarEntry[] = [];
+    let failed = 0;
+    for (let k = 0; k < stocks.length; k += 6) {
+      const batch = stocks.slice(k, k + 6);
+      const results = await Promise.all(batch.map((i) => this.getEarnings(i.id)));
+      results.forEach((ev, j) => {
+        if ('unavailable' in ev) { failed++; return; }
+        const inst = batch[j]!;
+        for (const e of ev) if (e.date >= from && e.date <= to) out.push({ ...e, name: inst.name, marketCap: null });
+      });
+    }
+    if (failed === stocks.length) return na('source-failed', 'Earnings source did not answer for any stock');
+    return out.sort((a, b) => (a.date === b.date ? a.symbol.localeCompare(b.symbol) : a.date < b.date ? -1 : 1));
   }
 
   async health(): Promise<SourceHealth[]> {
     const row = (id: string, label: string, feeds: string[], fallback: string): SourceHealth => {
       const s = this.status.get(id);
-      return { id, label, kind: 'provider', state: !s ? 'degraded' : s.ok ? 'ok' : 'failed', feeds, lastSuccess: s?.ok ? s.at : null, lastAttempt: s?.at ?? null, dataThrough: s?.through ?? null, error: s ? s.error : 'Not requested yet in this session', fallback };
+      return { id, label, kind: 'provider', state: !s ? 'idle' : s.ok ? 'ok' : 'failed', feeds, lastSuccess: s?.ok ? s.at : null, lastAttempt: s?.at ?? null, dataThrough: s?.through ?? null, error: s?.error, fallback };
     };
     return [
-      row('prices', 'Daily price history (Yahoo Finance chart)', ['Quote strip', 'Every price study'], 'No price study can run.'),
-      row('earnings', 'Earnings dates and results (Unusual Whales)', ['Next earnings', 'Reaction studies'], 'Price studies stay usable.'),
-      { id: 'fundamentals', label: 'Fundamentals and estimates', kind: 'provider', state: 'failed', feeds: ['Forward P/E', 'Cash and free cash flow', 'Market cap filter', 'Screener'], lastSuccess: null, lastAttempt: null, dataThrough: null, error: 'No live source connected', fallback: 'Valuation, cash and the cap filter show as unavailable.' },
+      row('prices', 'Daily price history (Yahoo Finance)', ['Quote strip', 'Every price study'], 'No price study can run.'),
+      row('earnings', 'Earnings dates and results (Unusual Whales)', ['Next earnings', 'Earnings calendar', 'Reaction studies'], 'Price studies stay usable.'),
+      row('fundamentals', 'Fundamentals and FY1 estimates (Yahoo Finance)', ['Forward P/E', 'Cash and free cash flow', 'Market cap filter'], 'Price studies stay usable. Valuation and cash show as unavailable.'),
     ];
   }
 }

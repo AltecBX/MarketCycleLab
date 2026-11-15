@@ -5,15 +5,15 @@
   "type": "module",
   "description": "Market Cycle Research. Evidence-led stock selloff, trend and position research.",
   "scripts": {
-    "dev": "vite",
-    "dev:live": "VITE_DATA=live vite",
+    "dev": "vite --mode fixture",
+    "dev:live": "vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint src server e2e --max-warnings 0",
+    "lint": "eslint src server functions e2e vite.config.ts --max-warnings 0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "node e2e/run.mjs",
+    "e2e": "BUILD=1 node e2e/run.mjs",
     "check": "npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {

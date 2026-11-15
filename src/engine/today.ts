@@ -152,7 +152,7 @@ export const evaluateAlerts = (input: AlertInput, config: AlertConfig = DEFAULT_
         else {
           const ch = last.close / bars[n - 2]!.close - 1;
           if (ch <= -config.downSessionPct + EPS) {
-            add('down-session', last.date, 'triggered', 'high', `Down ${pct(-ch)} in one session`, `Close ${last.close} on ${last.date} against ${bars[n - 2]!.close} on ${bars[n - 2]!.date}.`, ch);
+            add('down-session', last.date, 'triggered', 'high', `Down ${pct(-ch)} in one session`, `Close ${last.close.toFixed(2)} on ${last.date} against ${bars[n - 2]!.close.toFixed(2)} on ${bars[n - 2]!.date}.`, ch);
           }
         }
       }
@@ -177,7 +177,7 @@ export const evaluateAlerts = (input: AlertInput, config: AlertConfig = DEFAULT_
             'breached',
             'high',
             `Down ${pct(-cur.dd)} from the closing high`,
-            `Closing high ${peak.close} on ${peak.date}. First ${pct(config.drawdownPct)} breach on ${bars[start]!.date}.${lb !== null && n < lb ? ' History is shorter than the lookback window.' : ''}`,
+            `Closing high ${peak.close.toFixed(2)} on ${peak.date}. First ${pct(config.drawdownPct)} breach on ${bars[start]!.date}.${lb !== null && n < lb ? ' History is shorter than the lookback window.' : ''}`,
             cur.dd,
           );
         }
@@ -191,7 +191,7 @@ export const evaluateAlerts = (input: AlertInput, config: AlertConfig = DEFAULT_
           const sNow = s[n - 1];
           const sPrev = s[n - 2];
           if (sNow !== null && sNow !== undefined && sPrev !== null && sPrev !== undefined && last.close < sNow && bars[n - 2]!.close >= sPrev) {
-            add('sma200-breach', last.date, 'new-breach', 'medium', `New close below the ${L} session average`, `Close ${last.close} against an average of ${sNow.toFixed(2)}. The previous close was at or above its average.`, last.close / sNow - 1);
+            add('sma200-breach', last.date, 'new-breach', 'medium', `New close below the ${L} session average`, `Close ${last.close.toFixed(2)} against an average of ${sNow.toFixed(2)}. The previous close was at or above its average.`, last.close / sNow - 1);
           }
         }
       }

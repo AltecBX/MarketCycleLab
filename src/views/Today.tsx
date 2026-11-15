@@ -100,7 +100,7 @@ export default function Today() {
 
   const healthLine = (() => {
     if (health.status !== 'ready') return null;
-    const bad = health.data.filter((h) => h.state !== 'ok');
+    const bad = health.data.filter((h) => h.state !== 'ok' && h.state !== 'idle');
     return (
       <span className="pf-health">
         <span className="dot" aria-hidden="true" style={{ background: bad.length ? 'var(--warn)' : 'var(--up)' }} />

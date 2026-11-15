@@ -33,7 +33,7 @@ function useDestinations() {
 function StatusPill() {
   const h = useHealth();
   if (h.status !== 'ready') return null;
-  const bad = h.data.filter((s) => s.state !== 'ok');
+  const bad = h.data.filter((s) => s.state !== 'ok' && s.state !== 'idle');
   return (
     <NavLink to="/data" className={`chip ${bad.length ? 'warn' : ''}`} style={{ textDecoration: 'none' }} title="Sources, as-of dates and methods">
       <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: bad.length ? 'var(--warn)' : 'var(--up)', display: 'inline-block' }} />
@@ -109,7 +109,7 @@ export function Shell({ children }: { children: ReactNode }) {
       )}
       {!isFixtureMode() && (
         <div className="fixture-banner" role="note">
-          Live prices from Yahoo Finance chart history and earnings from Unusual Whales. Delayed, unofficial, completed sessions only. Fundamentals are not connected.
+          Daily closes and fundamentals from Yahoo Finance, earnings from Unusual Whales. Completed sessions only, not live quotes.
         </div>
       )}
       <main className="main" id="main">

@@ -40,7 +40,7 @@ export default function Business() {
   const cfCols: Column<CashFlowPeriod>[] = [
     { key: 'end', header: 'Period end', sticky: true, cell: (p) => fmtDate(p.periodEnd) },
     { key: 'scope', header: 'Scope', align: 'l', cell: (p) => SCOPE_LABEL[p.scope] ?? p.scope },
-    { key: 'filed', header: 'Filed', cell: (p) => <span className="muted">{fmtDate(p.filedAt)}</span> },
+    { key: 'filed', header: 'Filed', cell: (p) => <span className="muted">{p.filedAt === p.periodEnd ? 'Not provided' : fmtDate(p.filedAt)}</span> },
     { key: 'ocf', header: 'Operating cash flow', cell: (p) => fmtMoney(p.operatingCashFlow, true) },
     { key: 'capex', header: 'Capital expenditure', info: 'Shown as a positive outflow.', cell: (p) => fmtMoney(Math.abs(p.capex)) },
     { key: 'fcf', header: 'Free cash flow', info: 'Operating cash flow minus capital expenditure for the same period.', cell: (p) => (p.freeCashFlow === null ? <Missing why="Not derivable from this report" /> : <strong>{fmtMoney(p.freeCashFlow, true)}</strong>) },

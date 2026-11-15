@@ -11,6 +11,8 @@ is kept separate. Last updated 2026-11-14.
 | Invariant tests | Future rows never change earlier as-of results. Scaling all prices by one factor changes no return or state | `npm test` |
 | Synthetic fixture smoke tests | Each engine runs on a long history (NVDA, from Jan 22, 1999) and a short one (SNDK, from Feb 24, 2025) | `npm test` |
 | Owner acceptance fixture on real prices, session run | Weekly returns board on real NVDA daily bars from the Unusual Whales daily OHLC tool, 320 bars, Aug 1, 2025 to Nov 6, 2026, held outside the repository. All 13 owner figures matched: 45 completed weeks, 24 up, Aug 7 +11.56%, Nov 6 -8.80% at -1.94 sigma with low -11.33%, Feb 27 -6.65%, close $186.64, 22.0% below the 2026 closing high, 13.0% above the $165.17 Mar 30 closing low, five losing weeks, -20.2% from the Oct 2 close. Volume was absent from the capture, so relative volume was not exercised | Run `weeklyAcceptanceSummary` on a private capture. Not part of `npm test`, because the data cannot be committed |
+| Live provider runs, session | Yahoo Finance daily history and fundamentals and Unusual Whales earnings fetched through the server routes. NVDA live figures match the owner's Nov 13 checkpoints: close $162.85, 31.93% below the 3 month closing high of $239.24, 7 of 10 down sessions and MTD -20.42% in November. Every page swept at desktop and phone width on live data with no errors | Start `npm run dev:live`, then `node e2e/live.mjs` |
+| Hosted gate in the Cloudflare runtime | Password page, wrong password, forged cookie, deep link after login, data routes behind the gate, run under `wrangler pages dev`. Outbound provider calls could not be made from that runtime in the build sandbox | `server/gate.test.ts`, plus a deploy |
 | Browser checks on the production build | Routes at 1440, 440, 390 and 320 wide: no page side scroll, no console errors, no broken text. Symbol switching, alias, unknown symbol, keyboard search, scoped outage, legacy links | `npm run build && npm run e2e` |
 
 ## Evidence that does not exist
@@ -22,8 +24,8 @@ is kept separate. Last updated 2026-11-14.
 | Monthly Reversal checkpoints (NVDA Nov 13, SNDK) | Needs real data and the reference settings | Reference source plus a private capture |
 | Relative strength checkpoint (NVDA Nov 13) | Same | Same |
 | Weekly Range backtest reproduction (Engine A 152 weeks, Engine B 1,843 weeks) | The supplied zip, CSVs and Python scripts are on the owner's Mac | Share the backtest folder |
-| Authenticated provider runs | Yahoo and Unusual Whales hosts are blocked by the session network policy. No API key was requested | Allow the hosts, store `UW_API_KEY` as a server secret |
-| Scheduled jobs (daily refresh, risk monitor, Friday range capture) | No deployment exists | Staging deployment |
+| Scheduled jobs (daily refresh, risk monitor, Friday range capture) | Not built | A scheduler on the host |
+| Yahoo access from Cloudflare | Yahoo can rate limit cloud addresses. Server responses are cached (prices 30 minutes, fundamentals 6 hours) to keep calls low, but this was not tested from Cloudflare itself | First use after deploy |
 | Owner data migration | No access to the private store | Authorized export from the reference |
 | Real device Safari review | Checks ran in headless Chromium at phone viewport sizes | Review on an iPhone |
 | First-time user task review | No independent reviewer was available. Scripted checks stand in | A reviewer session |

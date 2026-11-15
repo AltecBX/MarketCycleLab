@@ -83,7 +83,7 @@ export default function CashFlow() {
     },
     { key: 'ocf', header: 'Operating cash flow', sort: (r) => rec(r)?.operatingCashFlow ?? null, cell: (r) => (rec(r) ? fmtMoney(rec(r)!.operatingCashFlow, true) : <Na why={r.fcfRecord} />) },
     { key: 'capex', header: 'Capex', info: 'Capital expenditure as a positive outflow.', sort: (r) => rec(r)?.capex ?? null, cell: (r) => (rec(r) ? fmtMoney(rec(r)!.capex) : <Na why={r.fcfRecord} />) },
-    { key: 'filed', header: 'Filed', sort: (r) => rec(r)?.filedAt ?? null, cell: (r) => (rec(r) ? fmtDate(rec(r)!.filedAt) : <Na why={r.fcfRecord} />) },
+    { key: 'filed', header: 'Filed', sort: (r) => rec(r)?.filedAt ?? null, cell: (r) => (rec(r) ? (rec(r)!.filedAt === rec(r)!.periodEnd ? 'Not provided' : fmtDate(rec(r)!.filedAt)) : <Na why={r.fcfRecord} />) },
     { key: 'ytd', header: 'YTD price', info: 'Price return from the final close of the prior year. Shown beside free cash flow for comparison only.', sort: (r) => (isNum(r.ytd) ? r.ytd : null), cell: (r) => <PctCell v={r.ytd} /> },
     { key: 'cap', header: 'Cap', sort: (r) => (isNum(r.marketCap) ? r.marketCap : null), cell: (r) => (isNum(r.marketCap) ? fmtMoney(r.marketCap) : <Na why={r.marketCap} />) },
   ];
@@ -149,7 +149,7 @@ export default function CashFlow() {
                   <dt>Free cash flow</dt><dd>{fmtMoney(rec(detail)!.value, true)}, {(SCOPE[rec(detail)!.scope] ?? rec(detail)!.scope).toLowerCase()} to {fmtDate(rec(detail)!.periodEnd)}{rec(detail)!.isLatestPeriod ? '' : '. Prior period, the newest report has none.'}</dd>
                   <dt>Operating cash flow</dt><dd>{fmtMoney(rec(detail)!.operatingCashFlow, true)}</dd>
                   <dt>Capex</dt><dd>{fmtMoney(rec(detail)!.capex)}</dd>
-                  <dt>Filed</dt><dd>{fmtDate(rec(detail)!.filedAt)}</dd>
+                  <dt>Filed</dt><dd>{rec(detail)!.filedAt === rec(detail)!.periodEnd ? 'Not provided by the source' : fmtDate(rec(detail)!.filedAt)}</dd>
                 </>
               ) : (
                 <><dt>Free cash flow</dt><dd>{isNa(detail.fcfRecord) ? reasonDetail(detail.fcfRecord) : 'n/a'}</dd></>

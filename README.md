@@ -3,50 +3,62 @@
 Evidence-led research on stock selloffs, trends and positions. A rebuild of the owner's private
 Study Market Drawdown Patterns app, written from the owner specification.
 
-This repository is public. It holds no private records, no provider data and no credentials.
-The app runs in fixture mode: every price and fundamental is synthetic and labeled as synthetic.
+## Use it
 
-## Run
+The app is a private web page. Open your bookmark, enter your password, and it works on desktop
+and iPhone. Every push to `main` redeploys it automatically.
+
+Data sources:
+- Daily prices and fundamentals: Yahoo Finance, free, completed sessions only.
+- Earnings dates and results: Unusual Whales, with your key held on the server.
+
+## One-time setup (about 5 minutes, all in the browser)
+
+1. Go to dash.cloudflare.com and create a free account, or sign in.
+2. Open **Workers & Pages**, choose **Create**, then the **Pages** tab, then
+   **Connect to Git**. Allow access to the `MarketCycleLab` repository.
+3. Settings:
+   - Production branch: `main`
+   - Framework preset: `None`
+   - Build command: `npm run build`
+   - Build output directory: `dist`
+4. Under **Environment variables**, add:
+   - `APP_PASSWORD`: the password you will type to open the app, 8 characters or more
+   - `UW_API_KEY`: your Unusual Whales API key
+   Mark both as **Encrypt** (secret).
+5. Choose **Save and Deploy**. When it finishes, open the `pages.dev` address it shows and
+   bookmark it. On iPhone, use Share, then Add to Home Screen.
+
+Until `APP_PASSWORD` is set the app stays closed. Changing the password signs every device out.
+
+## What runs where
+
+- The page and all studies run in your browser.
+- `functions/_middleware.ts` runs on Cloudflare: the password gate and the market data routes.
+  Provider access and your key never reach the browser.
+- Your watchlist, positions, notes and journal are stored in the browser you use. Use
+  Portfolio, Export to move them to another device.
+
+## For development
 
 ```bash
 npm install
 ```
 
-```bash
-npm run dev
-```
-
-## Run on live data
-
-Prices come from the Yahoo Finance chart endpoint (no key). Earnings come from Unusual Whales and
-need your key in the environment of the terminal that starts the app. The key stays on the
-server side. It is never sent to the browser and never written to the repository.
+Live data on your computer (prices work without the key; earnings need it):
 
 ```bash
 UW_API_KEY=your_key_here npm run dev:live
 ```
 
-Without the key, prices still load and earnings show as unavailable.
-
-## Check
+Synthetic data, no network:
 
 ```bash
-npm run check
+npm run dev
 ```
 
-```bash
-npm run e2e
-```
-
-`check` runs typecheck, lint, unit tests and the production build. `e2e` runs the browser checks
-against the build, so run it after `check` or `npm run build`.
-
-## Server
-
-The owner-only API lives in `server/`. It reads every secret from the environment and refuses to
-start without them: `MCL_SESSION_SECRET`, `MCL_OWNER_PASSPHRASE_RECORD`, `MCL_JOB_TOKEN`,
-`MCL_ALLOWED_ORIGIN`. Create the passphrase record by piping the passphrase into
-`node --experimental-strip-types server/hash.ts`. The client is not wired to it yet.
+Checks: `npm run check` (typecheck, lint, unit tests, build) and `npm run e2e` (browser checks
+on synthetic data). `node e2e/live.mjs` sweeps every page against a running `dev:live` server.
 
 ## Documents
 

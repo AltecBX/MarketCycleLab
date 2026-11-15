@@ -59,7 +59,8 @@ export interface TradingGroup {
   asOf: ISODate;
 }
 
-export type HealthState = 'ok' | 'degraded' | 'failed' | 'stale';
+/** 'idle' means not requested yet in this session. It is neither a pass nor a failure. */
+export type HealthState = 'ok' | 'idle' | 'degraded' | 'failed' | 'stale';
 
 export interface SourceHealth {
   id: string;

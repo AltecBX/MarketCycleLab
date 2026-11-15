@@ -3,6 +3,11 @@ dist
 e2e/out
 *.local
 .env*
+!.env.production
+!.env.fixture
+!.env.development
+dist-e2e
+.wrangler
 # Private or licensed captures never belong in this public repository.
 private/
 fixtures-private/

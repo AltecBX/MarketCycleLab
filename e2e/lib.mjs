@@ -5,13 +5,13 @@ const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
 const PORT = process.env.PORT ?? '4173';
-const DIST = process.env.DIST ?? 'dist';
+const DIST = process.env.DIST ?? 'dist-e2e';
 export const BASE = `http://127.0.0.1:${PORT}`;
 
 /** Build into DIST when BUILD=1, then serve it. Set PORT and DIST to run several checks side by side. */
 export async function startServer() {
   if (process.env.BUILD === '1') {
-    const b = spawnSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--outDir', DIST, '--emptyOutDir', '--logLevel', 'error'], { stdio: 'inherit' });
+    const b = spawnSync(process.execPath, ['node_modules/vite/bin/vite.js', 'build', '--mode', 'fixture', '--outDir', DIST, '--emptyOutDir', '--logLevel', 'error'], { stdio: 'inherit' });
     if (b.status !== 0) throw new Error('build failed');
   }
   const proc = spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--outDir', DIST, '--port', PORT, '--strictPort', '--host', '127.0.0.1'], { stdio: 'ignore' });
