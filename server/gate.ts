@@ -75,7 +75,7 @@ export const gate = async (request: Request, env: GateEnv, serveAsset: () => Pro
   const password = env.APP_PASSWORD ?? '';
   if (password.length < 8) {
     return withHeaders(html(`<!doctype html><meta charset="utf-8"><title>Setup needed</title><body style="font-family:system-ui;padding:24px;max-width:560px">
-<h1 style="font-size:20px">One more setup step</h1><p>Add an environment variable named <b>APP_PASSWORD</b> (8 characters or more) in your hosting settings, then redeploy. The app stays closed until it is set.</p></body>`, 503));
+<h1 style="font-size:20px">One more setup step</h1><p>In Cloudflare, open this Worker, then <b>Settings</b>, then the <b>Variables and Secrets</b> section at the top of the page. Add a <b>Secret</b> named <b>APP_PASSWORD</b>, 8 characters or more, and deploy it. Then reload this page.</p><p>Variables added under <b>Builds</b> are only used while building and do not reach the running app.</p></body>`, 503));
   }
   // Static brand assets used by the login page are public. Nothing else is.
   if (url.pathname === '/mark.svg') return withHeaders(await serveAsset());
