@@ -12,29 +12,27 @@ Data sources:
 - Daily prices and fundamentals: Yahoo Finance, free, completed sessions only.
 - Earnings dates and results: Unusual Whales, with your key held on the server.
 
-## One-time setup (about 5 minutes, all in the browser)
+## Setup on Cloudflare (Workers)
 
-1. Go to dash.cloudflare.com and create a free account, or sign in.
-2. Open **Workers & Pages**, choose **Create**, then the **Pages** tab, then
-   **Connect to Git**. Allow access to the `MarketCycleLab` repository.
-3. Settings:
-   - Production branch: `main`
-   - Framework preset: `None`
+The project `marketcyclelab` in Workers & Pages builds from GitHub `main`.
+
+1. In the project, open **Settings**, then **Build**. Set:
    - Build command: `npm run build`
-   - Build output directory: `dist`
-4. Under **Environment variables**, add:
-   - `APP_PASSWORD`: the password you will type to open the app, 8 characters or more
+   - Deploy command: `npx wrangler deploy`
+2. Open **Settings**, then **Variables and Secrets**. Add, each with type **Secret**:
+   - `APP_PASSWORD`: the password you type to open the app, 8 characters or more
    - `UW_API_KEY`: your Unusual Whales API key
-   Mark both as **Encrypt** (secret).
-5. Choose **Save and Deploy**. When it finishes, open the `pages.dev` address it shows and
-   bookmark it. On iPhone, use Share, then Add to Home Screen.
+3. Open **Deployments** and retry the latest build, or wait for the next push to `main`.
+4. Open the `workers.dev` address shown on the project's Overview, sign in, and bookmark it.
+   On iPhone, use Share, then Add to Home Screen.
 
 Until `APP_PASSWORD` is set the app stays closed. Changing the password signs every device out.
 
 ## What runs where
 
 - The page and all studies run in your browser.
-- `functions/_middleware.ts` runs on Cloudflare: the password gate and the market data routes.
+- `worker/index.ts` runs on Cloudflare (`wrangler.jsonc`): the password gate and the market data
+  routes.
   Provider access and your key never reach the browser.
 - Your watchlist, positions, notes and journal are stored in the browser you use. Use
   Portfolio, Export to move them to another device.

@@ -11,3 +11,4 @@ dist-e2e
 # Private or licensed captures never belong in this public repository.
 private/
 fixtures-private/
+.dev.vars
