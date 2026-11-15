@@ -6,6 +6,7 @@
   "description": "Market Cycle Research. Evidence-led stock selloff, trend and position research.",
   "scripts": {
     "dev": "vite",
+    "dev:live": "VITE_DATA=live vite",
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "typecheck": "tsc --noEmit -p tsconfig.json",

@@ -16,6 +16,18 @@ npm install
 npm run dev
 ```
 
+## Run on live data
+
+Prices come from the Yahoo Finance chart endpoint (no key). Earnings come from Unusual Whales and
+need your key in the environment of the terminal that starts the app. The key stays on the
+server side. It is never sent to the browser and never written to the repository.
+
+```bash
+UW_API_KEY=your_key_here npm run dev:live
+```
+
+Without the key, prices still load and earnings show as unavailable.
+
 ## Check
 
 ```bash

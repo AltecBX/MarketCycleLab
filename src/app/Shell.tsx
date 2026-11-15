@@ -107,6 +107,11 @@ export function Shell({ children }: { children: ReactNode }) {
           Synthetic fixture data. Prices and fundamentals are generated for testing and are not market data.
         </div>
       )}
+      {!isFixtureMode() && (
+        <div className="fixture-banner" role="note">
+          Live prices from Yahoo Finance chart history and earnings from Unusual Whales. Delayed, unofficial, completed sessions only. Fundamentals are not connected.
+        </div>
+      )}
       <main className="main" id="main">
         {children}
       </main>

@@ -7,10 +7,13 @@ import { sliceAsOf } from '../engine/core/series';
 import { isNa, na, type Bar, type DailySeries, type EarningsEvent, type Instrument, type Maybe } from '../engine/core/types';
 import type { Clock, DataProvider, Fundamentals, ResolvedSymbol, SourceHealth } from './contracts';
 import { FixtureProvider } from './fixtureProvider';
+import { LiveProvider } from './liveProvider';
 
-const provider = new FixtureProvider();
+const fixture = new FixtureProvider();
+/** `npm run dev:live` sets VITE_DATA=live. Anything else runs the synthetic fixture. */
+const provider: DataProvider = import.meta.env?.VITE_DATA === 'live' ? new LiveProvider() : fixture;
 export const getProvider = (): DataProvider => provider;
-export const getFixtureProvider = (): FixtureProvider => provider;
+export const getFixtureProvider = (): FixtureProvider => fixture;
 export const isFixtureMode = (): boolean => provider.kind === 'synthetic-fixture';
 
 const cache = new Map<string, Promise<unknown>>();
@@ -23,7 +26,7 @@ export const invalidate = (prefix = ''): void => {
   epoch++;
   epochListeners.forEach((l) => l());
 };
-provider.subscribe(() => invalidate());
+fixture.subscribe(() => invalidate());
 
 const useEpoch = (): number =>
   useSyncExternalStore(
