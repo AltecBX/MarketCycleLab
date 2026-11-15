@@ -1,0 +1,6 @@
+.so-two { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); align-items: start; }
+.so-range { width: min(100%, 260px); accent-color: var(--accent); min-height: 32px; }
+.so-num { width: 84px; }
+.so-tags { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.so-linkbtn { all: unset; cursor: pointer; color: var(--accent); font-weight: 560; }
+.so-linkbtn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }

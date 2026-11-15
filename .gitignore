@@ -1,0 +1,8 @@
+node_modules
+dist
+e2e/out
+*.local
+.env*
+# Private or licensed captures never belong in this public repository.
+private/
+fixtures-private/

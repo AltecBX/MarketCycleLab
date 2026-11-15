@@ -1,0 +1,9 @@
+/* Earnings view. Prefix er-. */
+.er-row-btn { all: unset; cursor: pointer; display: inline-flex; flex-direction: column; gap: 1px; min-height: 32px; justify-content: center; color: var(--accent); font-weight: 600; }
+.er-row-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.er-row-btn .faint { font-weight: 450; }
+.er-controls { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); align-items: flex-end; margin-bottom: var(--s3); }
+.er-foot { margin-top: var(--s2); color: var(--text-2); font-size: 12.5px; }
+.er-foot p + p { margin-top: 4px; }
+.er-pager { display: flex; align-items: center; gap: var(--s2); justify-content: flex-end; margin-top: var(--s2); font-size: 12.5px; color: var(--text-2); flex-wrap: wrap; }
+.er-next { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s3) var(--s4); }

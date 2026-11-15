@@ -1,0 +1,18 @@
+.fc-status { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-weight: 650; font-size: 12.5px; white-space: nowrap; }
+.fc-status[data-s='valid'] { background: var(--up-soft); color: var(--up); }
+.fc-status[data-s='not-reliable'], .fc-status[data-s='stale'] { background: var(--warn-soft); color: var(--warn); }
+.fc-status[data-s='insufficient-evidence'], .fc-status[data-s='unavailable'] { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+.fc-reasons { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); font-size: 13px; }
+.fc-reasons li { overflow-wrap: anywhere; }
+.fc-ev { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 2px 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.fc-ev:last-child { border-bottom: 0; }
+.fc-ev-sub { grid-column: 1 / -1; color: var(--text-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.fc-hypo { border: 1px dashed var(--gold-line); border-radius: var(--radius-sm); padding: 12px; background: var(--gold-soft); }
+.fc-hypo .stat-label, .fc-hypo .muted, .fc-hypo .faint, .fc-hypo .stat-sub { color: var(--text); }
+.fc-hypo table.data th, .fc-hypo table.data td { background: var(--surface); }
+.fc-days { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.fc-day { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 6px 4px; text-align: center; font-size: 12px; min-width: 0; overflow-wrap: anywhere; }
+.fc-day[data-open='false'] { background: var(--surface-2); color: var(--text-3); }
+.fc-day strong { display: block; font-size: 13px; }
+.fc-check { margin: 0; padding-left: 18px; color: var(--text-2); }
+.fc-check li { margin: 3px 0; }
